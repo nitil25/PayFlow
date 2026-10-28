@@ -1,7 +1,9 @@
-import "dotenv/config";
+import dotenv, { config } from "dotenv";
+dotenv.config()
 import express from "express"
 import cookieParser from "cookie-parser"
 import connectDb from "./utils/db.js";
+import authRouter from "./routes/auth.routes.js";
 // import cors from "cors"
 
 const app = express()
@@ -21,7 +23,12 @@ app.use(express.urlencoded({extended:true}))
 // app.use(cors(corsOption))
 
 
-// All the routes
+// All the apis routes
+app.use("/api/auth",authRouter)
+
+
+
+
 
 app.listen(PORT, ()=>{
     connectDb()

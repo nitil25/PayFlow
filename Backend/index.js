@@ -13,8 +13,6 @@ const corsOption = {
     credentials:true
 }
 
-// usernamr:aalukachori25_db_user
-// pass :q0xCr73VRvGx4pmg
 
 // All the middlewares
 app.use(express.json())

@@ -4,6 +4,7 @@ import express from "express"
 import cookieParser from "cookie-parser"
 import connectDb from "./utils/db.js";
 import authRouter from "./routes/auth.routes.js";
+import companyRouter from "./routes/company.routes.js";
 // import cors from "cors"
 
 const app = express()
@@ -25,7 +26,7 @@ app.use(express.urlencoded({extended:true}))
 
 // All the apis routes
 app.use("/api/auth",authRouter)
-
+app.use("/api/company", companyRouter)
 
 
 

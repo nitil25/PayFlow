@@ -36,7 +36,8 @@ export const SignUp = async (req, res) => {
     res.cookie("token",token,{
         http:true,
         sameSite:"lax",
-        secure:false
+        secure:false,
+        maxAge:15*24*60*60
     })
 
     return res.status(201).json({
@@ -89,11 +90,12 @@ export const signIn = async(req,res) => {
         res.cookie("token", token,{
             http:true,
             sameSite:"lax",
-            secure:false
+            secure:false,
+            maxAge:15*24*60*60
         })
 
         return res.status(200).json({
-            message:"User found successfully",
+            message:"User sign in successfully",
             user:{
             _id:isUser._id,
             name:isUser.name,

@@ -216,4 +216,3 @@ export const updatePayoutPreferences = async (req, res) => {
     });
   }
 };
-

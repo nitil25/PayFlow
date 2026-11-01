@@ -6,7 +6,9 @@ import connectDb from "./utils/db.js";
 import authRouter from "./routes/auth.routes.js";
 import companyRouter from "./routes/company.routes.js";
 import employeeRouter from "./routes/employee.routes.js";
+import payrollRouter from "./routes/payrollImport.routes.js";
 // import cors from "cors"
+import multerConfig from "./utils/multer.js";
 
 const app = express()
 
@@ -23,12 +25,14 @@ app.use(express.json())
 app.use(cookieParser())
 app.use(express.urlencoded({extended:true}))
 // app.use(cors(corsOption))
+app.use(multerConfig)
 
 
 // All the apis routes
 app.use("/api/auth",authRouter)
 app.use("/api/company", companyRouter)
 app.use("/api/employee", employeeRouter)
+app.use("/api/payroll",payrollRouter)
 
 
 

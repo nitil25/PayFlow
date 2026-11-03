@@ -1,13 +1,3 @@
-/*
-add employee done
-get all employee done
-get employee by id done
-update employee details done
-update employee salary
-activate or deacitvate employee status
-remove a employee
-*/ 
-
 import User from "../models/user.model.js"
 import Company from "../models/Company.model.js"
 import Employee from "../models/employee.model.js"

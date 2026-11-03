@@ -7,7 +7,7 @@ export const SignUp = async (req, res) => {
   try {
     const { name, email, password, role, isActive } = req.body;
 
-    if (!name || !email || !password || !role) {
+    if (!name || !email || !password) {
       return res.status(400).json({
         message: "Name, email, password and role is required",
       });
@@ -34,10 +34,10 @@ export const SignUp = async (req, res) => {
     const token =await genToken(user._id)
 
     res.cookie("token",token,{
-        http:true,
+        httpOnly:true,
         sameSite:"lax",
         secure:false,
-        maxAge:15*24*60*60
+        maxAge:15*24*60*60*1000
     })
 
     return res.status(201).json({
@@ -56,7 +56,6 @@ export const SignUp = async (req, res) => {
     console.log(`Sign Up error: ${error.message}`);
   }
 };
-
 
 // Sign In controller
 export const signIn = async(req,res) => {
@@ -91,7 +90,7 @@ export const signIn = async(req,res) => {
             http:true,
             sameSite:"lax",
             secure:false,
-            maxAge:15*24*60*60
+            maxAge:15*24*60*60*1000
         })
 
         return res.status(200).json({
@@ -115,7 +114,6 @@ export const signIn = async(req,res) => {
 }
 
 // Logout controller
-
 export const signOut = async(req, res) => {
     try {
         res.clearCookie("token")

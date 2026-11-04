@@ -1,7 +1,5 @@
-
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-
 import PayFlowLogo from "../assets/PayFlow.png";
 import "../CSS Styling/Splash.css";
 

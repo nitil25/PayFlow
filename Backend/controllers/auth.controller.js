@@ -128,3 +128,27 @@ export const signOut = async(req, res) => {
         })
     }
 }
+
+// get me controller
+export const getMe = async(req,res) => {
+    try {
+        const userId = req.userId
+        const user = await User.findById(userId).select("-password")
+
+        if(!user){
+            return res.status(404).json({
+                message:"Unauthorized access"
+            })
+        }
+
+        return res.status(200).json({
+            message:"User found successfully",
+            user
+        })
+    }catch(error){
+        console.log(`Get me error : ${error.message}`)
+        return res.status(400).json({
+            message:"Internal server error"
+        })
+    }
+}

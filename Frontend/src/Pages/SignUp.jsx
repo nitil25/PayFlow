@@ -4,9 +4,12 @@ import { useState } from "react";
 import API from "../services/api";
 import PayFlowLogo from "../assets/PayFlow.png";
 import "../CSS Styling/Signup.css";
+import { useDispatch } from "react-redux";
+import { setUserData } from "../Redux/UserSlice";
 
 function SignUp() {
   const navigate = useNavigate();
+  const dispatch = useDispatch();
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -38,7 +41,7 @@ function SignUp() {
         password,
       });
 
-      console.log("Signup response:", response.data);
+      dispatch(setUserData(response.data.user));
 
       // Navigate to Welcome page
       navigate("/welcome", {
@@ -138,7 +141,7 @@ function SignUp() {
 
         <p className="signup-switch">
           Already have an account?
-          <Link to="/login"> Sign in</Link>
+          <Link to="/signin"> Sign in</Link>
         </p>
 
         <p className="signup-terms">

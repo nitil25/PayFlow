@@ -256,7 +256,7 @@ function LandingPage() {
         </div>
 
         <div className="landing-nav-actions">
-          <Link to="/login" className="nav-login">Sign in</Link>
+          <Link to="/signin" className="nav-login">Sign in</Link>
           <Link to="/signup" className="nav-signup">Get started ↗</Link>
         </div>
       </nav>
@@ -291,7 +291,7 @@ function LandingPage() {
               Get started <span>↗</span>
             </Link>
 
-            <Link to="/login" className="hero-secondary">
+            <Link to="/signin" className="hero-secondary">
               Sign in →
             </Link>
           </div>
@@ -550,7 +550,7 @@ function LandingPage() {
 
         <div className="cta-login">
           Already have an account?
-          <Link to="/login"> Sign in</Link>
+          <Link to="/signin"> Sign in</Link>
         </div>
       </section>
 
@@ -567,7 +567,7 @@ function LandingPage() {
             <a href="#features">Features</a>
             <a href="#workflow">How it works</a>
             <a href="#analytics">Analytics</a>
-            <Link to="/login">Sign in</Link>
+            <Link to="/signin">Sign in</Link>
             <Link to="/signup">Sign up</Link>
           </div>
         </div>

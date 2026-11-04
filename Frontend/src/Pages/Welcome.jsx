@@ -3,11 +3,14 @@ import { Link, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import PayFlowLogo from "../assets/PayFlow.png";
 import "../CSS Styling/Welcome.css";
+import { useSelector } from "react-redux";
 
 function Welcome() {
   const location = useLocation();
 
-  const name = location.state?.name || "there";
+  const {userData} = useSelector((state) => state.user)
+
+  const name = location.state?.name || userData?.name || "there";
   const source = location.state?.source || "signin";
 
   const [progress, setProgress] = useState(0);
@@ -34,18 +37,6 @@ function Welcome() {
 
       <div className="welcome-glow welcome-glow-one"></div>
       <div className="welcome-glow welcome-glow-two"></div>
-
-      <nav className="welcome-nav">
-
-        <Link to="/login" className="welcome-back">
-          ← Back to Sign In
-        </Link>
-
-        <Link to="/signup" className="welcome-back">
-          Back to Sign Up →
-        </Link>
-
-      </nav>
 
       <div className="welcome-content">
 

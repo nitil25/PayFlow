@@ -1,12 +1,14 @@
-
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import PayFlowLogo from "../assets/PayFlow.png";
 import "../CSS Styling/Signin.css";
 import API from "../services/api";
+import { useDispatch } from "react-redux";
+import { setUserData } from "../Redux/UserSlice";
 
 function Signin() {
   const navigate = useNavigate();
+  const dispatch = useDispatch();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -28,26 +30,24 @@ function Signin() {
         password,
       });
 
-   console.log("Login successful:", response.data);
-
-navigate("/welcome", {
-  state: {
-    name: response.data.user.name,
-    source: "signin"
-  }
-});
+      dispatch(setUserData(response.data.user))
+      
+      navigate("/welcome", {
+        state: {
+          name: response.data.user.name,
+          source: "signin",
+        },
+      });
 
       // Redirect after successful authentication
       alert("Authentication successful! Dashboard coming soon.");
-
     } catch (error) {
       console.error("Login error:", error.response?.data || error);
 
       alert(
         error.response?.data?.message ||
-        "Login failed. Please check your credentials."
+          "Login failed. Please check your credentials.",
       );
-
     } finally {
       setLoading(false);
     }
@@ -55,7 +55,6 @@ navigate("/welcome", {
 
   return (
     <div className="auth-page">
-
       <div className="auth-decoration auth-decoration-one"></div>
       <div className="auth-decoration auth-decoration-two"></div>
 
@@ -69,9 +68,7 @@ navigate("/welcome", {
         <span className="auth-eyebrow">WELCOME BACK</span>
         <h1>Good to see you.</h1>
 
-        <p className="auth-subtitle">
-          Sign in and get back to your flow.
-        </p>
+        <p className="auth-subtitle">Sign in and get back to your flow.</p>
 
         <form onSubmit={handleSubmit}>
           <label htmlFor="login-email">Email address</label>
@@ -103,11 +100,7 @@ navigate("/welcome", {
             </a>
           </div>
 
-          <button
-            type="submit"
-            className="auth-submit"
-            disabled={loading}
-          >
+          <button type="submit" className="auth-submit" disabled={loading}>
             {loading ? "Signing in..." : "Sign in"}
             <span>↗</span>
           </button>
@@ -130,7 +123,6 @@ navigate("/welcome", {
       >
         ← Back to home
       </button>
-
     </div>
   );
 }

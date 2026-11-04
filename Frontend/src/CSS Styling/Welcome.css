@@ -1,0 +1,244 @@
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap');
+
+* {
+  box-sizing: border-box;
+}
+
+.welcome-page {
+  min-height: 100vh;
+  width: 100%;
+  background: linear-gradient(135deg, #170b32, #32105e, #4b1680);
+  color: white;
+  font-family: 'DM Sans', sans-serif;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 35px;
+}
+
+/* Background glow effects */
+
+.welcome-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.welcome-glow-one {
+  width: 400px;
+  height: 400px;
+  background: #9b4dff;
+  top: -150px;
+  left: -100px;
+}
+
+.welcome-glow-two {
+  width: 450px;
+  height: 450px;
+  background: #7926d9;
+  bottom: -200px;
+  right: -100px;
+}
+
+/* Navigation */
+
+.welcome-nav {
+  position: absolute;
+  top: 35px;
+  left: 5%;
+  right: 5%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 2;
+}
+
+.welcome-back {
+  color: #e2d2ff;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  transition: 0.3s ease;
+}
+
+.welcome-back:hover {
+  color: white;
+  transform: translateY(-2px);
+}
+
+/* Main content */
+
+.welcome-content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 550px;
+  text-align: center;
+  animation: welcomeAppear 0.9s ease forwards;
+}
+
+.welcome-logo {
+  width: 125px;
+  height: auto;
+  object-fit: contain;
+  margin-bottom: 35px;
+  filter: drop-shadow(0 0 25px rgba(210, 170, 255, 0.3));
+  animation: logoFloat 3s ease-in-out infinite;
+}
+
+.welcome-eyebrow {
+  display: block;
+  color: #c9a6ff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  margin-bottom: 18px;
+}
+
+.welcome-content h1 {
+  font-family: 'Outfit', sans-serif;
+  font-size: clamp(34px, 6vw, 52px);
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0;
+  color: white;
+}
+
+.welcome-content h1 span {
+  background: linear-gradient(90deg, #d7b8ff, #a66aff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.welcome-content h2 {
+  font-family: 'Outfit', sans-serif;
+  font-size: 36px;
+  font-weight: 600;
+  color: #e2caff;
+  margin: 12px 0;
+}
+
+.welcome-description {
+  color: #d5c4ec;
+  font-size: 15px;
+  line-height: 1.8;
+  margin: 18px 0 42px;
+}
+
+/* Loading bar */
+
+.welcome-loader {
+  width: 100%;
+  max-width: 390px;
+  margin: 0 auto;
+}
+
+.welcome-loader-info {
+  display: flex;
+  justify-content: space-between;
+  color: #e8dcfa;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.welcome-progress-track {
+  height: 9px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 50px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.welcome-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #b57aff, #ead5ff);
+  border-radius: 50px;
+  box-shadow: 0 0 15px rgba(202, 158, 255, 0.7);
+  transition: width 0.12s linear;
+}
+
+.welcome-ready {
+  color: #dfc8ff;
+  font-size: 13px;
+  margin-top: 25px;
+  animation: welcomeAppear 0.5s ease;
+}
+
+/* Footer */
+
+.welcome-footer {
+  position: absolute;
+  bottom: 25px;
+  color: #bda5d9;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-align: center;
+}
+
+/* Animations */
+
+@keyframes welcomeAppear {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes logoFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+/* Mobile responsive */
+
+@media (max-width: 600px) {
+  .welcome-page {
+    padding: 25px 20px;
+  }
+
+  .welcome-nav {
+    top: 22px;
+    left: 20px;
+    right: 20px;
+  }
+
+  .welcome-back {
+    font-size: 11px;
+  }
+
+  .welcome-logo {
+    width: 100px;
+  }
+
+  .welcome-content h2 {
+    font-size: 29px;
+  }
+
+  .welcome-description {
+    font-size: 13px;
+  }
+
+  .welcome-footer {
+    bottom: 15px;
+    font-size: 10px;
+  }
+}

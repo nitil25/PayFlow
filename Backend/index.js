@@ -10,6 +10,7 @@ import payrollRouter from "./routes/payrollImport.routes.js";
 import cors from "cors"
 import multerConfig from "./utils/multer.js";
 import payrollBatchRouter from "./routes/payrollBatch.route.js";
+import salaryChangeRouter from "./routes/salaryChange.route.js";
 
 const app = express()
 
@@ -35,7 +36,7 @@ app.use("/api/company", companyRouter)
 app.use("/api/employee", employeeRouter)
 app.use("/api/payroll",payrollRouter)
 app.use("/api/payroll-batch",payrollBatchRouter)
-
+app.use("/api/salary-change",salaryChangeRouter)
 
 
 app.listen(PORT, ()=>{

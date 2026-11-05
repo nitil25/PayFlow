@@ -115,8 +115,6 @@ const refreshBatchTotals = (batch) => {
   batch.totalAmount = totals.totalAmount;
 };
 
-
-
 // Create Payroll Batch  POST method
 export const createPayrollBatch = async(req, res) => {
     try {

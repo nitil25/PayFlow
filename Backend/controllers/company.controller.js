@@ -1,5 +1,8 @@
 import Company from "../models/company.model.js";
 import User from "../models/user.model.js";
+import Employee from "../models/employee.model.js";
+import PayrollBatch from "../models/payrollBatch.model.js";
+
 
 // create the company controller method POST /api/company/create
 export const createCompany = async (req, res) => {
@@ -213,6 +216,148 @@ export const updatePayoutPreferences = async (req, res) => {
     console.log(`update payout prefrences error : ${error.message}`);
     return res.status(500).json({
       message: "Internal server error",
+    });
+  }
+};
+
+// get the total payout employee and everything related to to the company
+export const getCompanyDashboardStats = async (req, res) => {
+  try {
+    const userId = req.userId
+    const user = await User.findById(userId).select("-password")
+    const companyId = user.companyId;
+
+    // Find the company to get its timezone
+    const company = await Company.findById(companyId).select("timezone");
+
+    if (!company) {
+      return res.status(404).json({
+        message: "Company not found",
+      });
+    }
+
+    const timezone = company.timezone || "UTC";
+
+    // Match the current month using the company's timezone
+    const currentMonthExpression = (dateField) => ({
+      $eq: [
+        {
+          $dateToString: {
+            format: "%Y-%m",
+            date: dateField,
+            timezone,
+          },
+        },
+        {
+          $dateToString: {
+            format: "%Y-%m",
+            date: "$$NOW",
+            timezone,
+          },
+        },
+      ],
+    });
+
+    // Run all dashboard queries simultaneously
+    const [
+      totalEmployees,
+      activeEmployees,
+      totalBatches,
+      batchesThisMonth,
+      // paymentStats,
+    ] = await Promise.all([
+
+      // 1. Total employees
+      Employee.countDocuments({
+        companyId,
+      }),
+
+      // 2. Currently active employees
+      Employee.countDocuments({
+        companyId,
+        status: "active",
+      }),
+
+      // 3. Total payroll batches
+      PayrollBatch.countDocuments({
+        companyId,
+      }),
+
+      // 4. Payroll batches created this month
+      PayrollBatch.countDocuments({
+        companyId,
+        $expr: currentMonthExpression("$createdAt"),
+      }),
+
+      // 5. Successful payments and total amount paid this month
+      // PaymentTransaction.aggregate([
+      //   {
+      //     $match: {
+      //       companyId,
+      //       status: "completed",
+      //       paidAt: { $ne: null },
+      //       $expr: currentMonthExpression("$paidAt"),
+      //     },
+      //   },
+      //   {
+      //     $group: {
+      //       _id: "$currency",
+      //       successfulPayments: { $sum: 1 },
+      //       totalPaid: { $sum: "$amount" },
+      //     },
+      //   },
+      //   {
+      //     $sort: {
+      //       _id: 1,
+      //     },
+      //   },
+      // ]),
+
+    ]);
+
+    // Format payment totals without mixing currencies
+    // const paymentSummary = paymentStats.map((payment) => ({
+    //   currency: payment._id,
+    //   totalPaid: payment.totalPaid.toString(),
+    //   successfulPayments: payment.successfulPayments,
+    // }));
+
+    // // Count successful payments across all currencies
+    // const totalSuccessfulPayments = paymentStats.reduce(
+    //   (total, payment) => total + payment.successfulPayments,
+    //   0
+    // );
+
+    return res.status(200).json({
+      success: true,
+      message: "Company dashboard statistics fetched successfully",
+
+      data: {
+        employees: {
+          total: totalEmployees,
+          active: activeEmployees,
+          inactive: totalEmployees - activeEmployees,
+        },
+
+        payrollBatches: {
+          total: totalBatches,
+          createdThisMonth: batchesThisMonth,
+        },
+
+        // payments: {
+        //   successfulThisMonth: totalSuccessfulPayments,
+        //   totalPaidThisMonth: paymentSummary,
+        // },
+      },
+    });
+
+  } catch (error) {
+    console.error("Company dashboard error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch company dashboard statistics",
+      error: error.message,
     });
   }
 };

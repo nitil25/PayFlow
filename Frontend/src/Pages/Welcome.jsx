@@ -1,20 +1,22 @@
 
-import { Link, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import PayFlowLogo from "../assets/PayFlow.png";
 import "../CSS Styling/Welcome.css";
 import { useSelector } from "react-redux";
 
 function Welcome() {
   const location = useLocation();
+  const navigate = useNavigate();
 
-  const {userData} = useSelector((state) => state.user)
+  const { userData } = useSelector((state) => state.user);
 
   const name = location.state?.name || userData?.name || "there";
   const source = location.state?.source || "signin";
 
   const [progress, setProgress] = useState(0);
 
+  // Welcome progress animation
   useEffect(() => {
     setProgress(0);
 
@@ -32,6 +34,17 @@ function Welcome() {
     return () => clearInterval(interval);
   }, []);
 
+  // Navigate to Dashboard when progress reaches 100%
+  useEffect(() => {
+    if (progress !== 100) return;
+
+    const timeout = setTimeout(() => {
+      navigate("/dashboard", { replace: true });
+    }, 1200);
+
+    return () => clearTimeout(timeout);
+  }, [progress, navigate]);
+
   return (
     <div className="welcome-page">
 
@@ -47,7 +60,9 @@ function Welcome() {
         />
 
         <span className="welcome-eyebrow">
-          {source === "signup" ? "ACCOUNT CREATED SUCCESSFULLY" : "LOGIN SUCCESSFUL"}
+          {source === "signUp"
+            ? "ACCOUNT CREATED SUCCESSFULLY"
+            : "LOGIN SUCCESSFUL"}
         </span>
 
         <h1>

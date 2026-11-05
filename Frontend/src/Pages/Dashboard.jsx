@@ -1,9 +1,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import API from "../services/api";
 import "../CSS Styling/Dashboard.css";
+import { setCompanyData } from "../Redux/CompanySlice";
 
 const initialCompanyForm = {
   name: "",
@@ -19,6 +20,9 @@ const initialCompanyForm = {
 };
 
 function Dashboard() {
+
+  const dispatch = useDispatch()
+
   const { userData } = useSelector((state) => state.user);
 
   const [company, setCompany] = useState(null);
@@ -50,6 +54,7 @@ function Dashboard() {
 
       const response = await API.get("/company/me");
       const companyData = response.data.company;
+      dispatch(setCompanyData(companyData))
 
       setCompany(companyData || null);
 
@@ -217,6 +222,7 @@ function Dashboard() {
 
       if (updatedCompany) {
         setCompany(updatedCompany);
+        dispatch(setCompanyData(updatedCompany))
       } else {
         // Fetch the latest company details if the controller
         // does not return the updated company object.

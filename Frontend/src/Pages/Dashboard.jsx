@@ -1,10 +1,11 @@
 
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import API from "../services/api";
 import "../CSS Styling/Dashboard.css";
 import { setCompanyData } from "../Redux/CompanySlice";
+import { clearUserData } from "../Redux/UserSlice";
 
 const initialCompanyForm = {
   name: "",
@@ -20,10 +21,10 @@ const initialCompanyForm = {
 };
 
 function Dashboard() {
+  const dispatch = useDispatch();
+  const navigate = useNavigate();
 
-  const dispatch = useDispatch()
-
-  const { userData } = useSelector((state) => state.user);
+  const userData = useSelector((state) => state.user?.userData);
 
   const [company, setCompany] = useState(null);
   const [employeeCount, setEmployeeCount] = useState(null);
@@ -34,6 +35,10 @@ function Dashboard() {
   const [isEditing, setIsEditing] = useState(false);
   const [creating, setCreating] = useState(false);
 
+  // PROFILE DROPDOWN
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
   const [companyForm, setCompanyForm] = useState({
     ...initialCompanyForm,
     email: userData?.email || "",
@@ -43,10 +48,11 @@ function Dashboard() {
   const [logoPreview, setLogoPreview] = useState(null);
 
   const fileInputRef = useRef(null);
+  const profileMenuRef = useRef(null);
 
   const userName = userData?.name || "there";
 
-  // Fetch company and dashboard data
+  // FETCH COMPANY AND DASHBOARD DATA
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
@@ -54,8 +60,8 @@ function Dashboard() {
 
       const response = await API.get("/company/me");
       const companyData = response.data.company;
-      dispatch(setCompanyData(companyData))
 
+      dispatch(setCompanyData(companyData));
       setCompany(companyData || null);
 
       if (companyData) {
@@ -72,11 +78,16 @@ function Dashboard() {
           },
         });
 
+        // FETCH EMPLOYEE COUNT
         try {
           const employeeResponse = await API.get("/employee/all");
-          setEmployeeCount(
-            employeeResponse.data.employees?.length ?? 0
-          );
+
+          const employees =
+            employeeResponse.data.employees ||
+            employeeResponse.data.data ||
+            [];
+
+          setEmployeeCount(employees.length);
         } catch (employeeError) {
           console.error("Employee fetch error:", employeeError);
           setEmployeeCount(0);
@@ -86,9 +97,10 @@ function Dashboard() {
       }
     } catch (err) {
       console.error("Dashboard error:", err);
+
       setError(
         err.response?.data?.message ||
-        "Unable to load your dashboard. Please try again."
+          "Unable to load your dashboard. Please try again."
       );
     } finally {
       setLoading(false);
@@ -99,24 +111,70 @@ function Dashboard() {
     fetchDashboardData();
   }, []);
 
-  // Open create form
+  // PROFILE DROPDOWN: CLOSE ON OUTSIDE CLICK OR ESCAPE
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (
+        profileMenuRef.current &&
+        !profileMenuRef.current.contains(event.target)
+      ) {
+        setShowProfileMenu(false);
+      }
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setShowProfileMenu(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, []);
+
+  // LOGOUT
+  const handleLogout = async () => {
+    if (loggingOut) return;
+
+    setLoggingOut(true);
+
+    try {
+      await API.get("/auth/sign-out");
+    } catch (err) {
+      console.error("Logout request error:", err);
+    } finally {
+      dispatch(clearUserData());
+      setShowProfileMenu(false);
+      navigate("/signin", { replace: true });
+    }
+  };
+
+  // OPEN CREATE COMPANY FORM
   const openCreateForm = () => {
     setIsEditing(false);
+
     setCompanyForm({
       ...initialCompanyForm,
       email: userData?.email || "",
     });
+
     setCompanyLogo(null);
     setLogoPreview(null);
     setError("");
     setShowCompanyForm(true);
   };
 
-  // Open edit form
+  // OPEN EDIT COMPANY FORM
   const openEditForm = () => {
     if (!company) return;
 
     setIsEditing(true);
+
     setCompanyForm({
       name: company.name || "",
       email: company.email || "",
@@ -136,7 +194,7 @@ function Dashboard() {
     setShowCompanyForm(true);
   };
 
-  // Update form fields
+  // HANDLE FORM INPUTS
   const handleInputChange = (e) => {
     const { name, value } = e.target;
 
@@ -158,7 +216,7 @@ function Dashboard() {
     }
   };
 
-  // Temporary company logo preview
+  // TEMPORARY COMPANY LOGO PREVIEW
   const handleLogoChange = (e) => {
     const file = e.target.files?.[0];
 
@@ -194,7 +252,7 @@ function Dashboard() {
     reader.readAsDataURL(file);
   };
 
-  // Create or update company
+  // CREATE OR UPDATE COMPANY
   const handleCompanySubmit = async (e) => {
     e.preventDefault();
     setError("");
@@ -222,10 +280,8 @@ function Dashboard() {
 
       if (updatedCompany) {
         setCompany(updatedCompany);
-        dispatch(setCompanyData(updatedCompany))
+        dispatch(setCompanyData(updatedCompany));
       } else {
-        // Fetch the latest company details if the controller
-        // does not return the updated company object.
         await fetchDashboardData();
       }
 
@@ -241,13 +297,16 @@ function Dashboard() {
 
       setError(
         err.response?.data?.message ||
-        `Unable to ${isEditing ? "update" : "create"} your company. Please try again.`
+          `Unable to ${
+            isEditing ? "update" : "create"
+          } your company. Please try again.`
       );
     } finally {
       setCreating(false);
     }
   };
 
+  // CLOSE COMPANY FORM
   const closeCompanyForm = () => {
     if (creating) return;
 
@@ -271,57 +330,65 @@ function Dashboard() {
         <div className="sidebar-label">WORKSPACE</div>
 
         <nav className="dashboard-nav">
+
           <Link to="/dashboard" className="nav-item active">
             <span>▦</span>
             Overview
           </Link>
 
-          <button className="nav-item" disabled>
+          <Link to="/employees" className="nav-item">
             <span>♙</span>
             Employees
-            <small>SOON</small>
-          </button>
+          </Link>
 
-          <button className="nav-item" disabled>
+          <button className="nav-item" type="button" disabled>
             <span>⇄</span>
             Payroll
             <small>SOON</small>
           </button>
 
-          <button className="nav-item" disabled>
+          <button className="nav-item" type="button" disabled>
             <span>▤</span>
             Payroll Batches
             <small>SOON</small>
           </button>
 
-          <button className="nav-item" disabled>
+          <button className="nav-item" type="button" disabled>
             <span>◷</span>
             Payroll Imports
             <small>SOON</small>
           </button>
+
         </nav>
 
         <div className="sidebar-bottom">
 
           <div className="sidebar-company">
+
             <div className="company-avatar">
               {company?.name?.charAt(0)?.toUpperCase() || "P"}
             </div>
 
             <div className="sidebar-company-info">
-              <strong>{company?.name || "Your workspace"}</strong>
+              <strong>
+                {company?.name || "Your workspace"}
+              </strong>
+
               <span>
                 {company ? "Company account" : "Personal workspace"}
               </span>
             </div>
+
           </div>
 
           <button
             className="sidebar-settings"
+            type="button"
             onClick={company ? openEditForm : openCreateForm}
           >
             ⚙ Company Settings
           </button>
+
         </div>
       </aside>
 
@@ -329,27 +396,99 @@ function Dashboard() {
       <main className="dashboard-main">
 
         <header className="dashboard-topbar">
+
           <div>
             <span className="topbar-label">YOUR WORKSPACE</span>
             <h2>Overview</h2>
           </div>
 
-          <div className="dashboard-user">
-            <div className="user-avatar">
-              {userName.charAt(0).toUpperCase()}
-            </div>
+          {/* PROFILE DROPDOWN */}
+          <div className="profile-menu-container" ref={profileMenuRef}>
 
-            <div>
-              <strong>{userName}</strong>
-              <span>Account Owner</span>
-            </div>
+            <button
+              type="button"
+              className="dashboard-user profile-trigger"
+              onClick={() => setShowProfileMenu((prev) => !prev)}
+              aria-expanded={showProfileMenu}
+              aria-haspopup="true"
+            >
+              <div className="user-avatar">
+                {userName.charAt(0).toUpperCase()}
+              </div>
+
+              <div className="dashboard-user-info">
+                <strong>{userName}</strong>
+                <span>Account Owner</span>
+              </div>
+
+              <span
+                className={`profile-chevron ${
+                  showProfileMenu ? "open" : ""
+                }`}
+              >
+                ⌄
+              </span>
+            </button>
+
+            {showProfileMenu && (
+              <div className="profile-dropdown">
+
+                <div className="profile-dropdown-header">
+
+                  <div className="user-avatar dropdown-avatar">
+                    {userName.charAt(0).toUpperCase()}
+                  </div>
+
+                  <div className="profile-dropdown-details">
+                    <strong>{userName}</strong>
+                    <span>
+                      {userData?.email || "PayFlow account"}
+                    </span>
+                  </div>
+
+                </div>
+
+                <div className="profile-dropdown-divider" />
+
+                <button
+                  type="button"
+                  className="profile-dropdown-item"
+                  onClick={() => setShowProfileMenu(false)}
+                >
+                  <span>👤</span>
+                  My Profile
+                  <small>Coming soon</small>
+                </button>
+
+                <div className="profile-dropdown-divider" />
+
+                <button
+                  type="button"
+                  className="profile-logout-button"
+                  onClick={handleLogout}
+                  disabled={loggingOut}
+                >
+                  <span>↪</span>
+                  {loggingOut ? "Logging out..." : "Log out"}
+                </button>
+
+              </div>
+            )}
+
           </div>
+
         </header>
 
+        {/* WELCOME SECTION */}
         <section className="dashboard-welcome">
+
           <div>
-            <span className="welcome-tag">PAYFLOW WORKSPACE</span>
+            <span className="welcome-tag">
+              PAYFLOW WORKSPACE
+            </span>
+
             <h1>Welcome back, {userName}!</h1>
+
             <p>
               Manage your company, employees and payroll
               from one place.
@@ -357,6 +496,7 @@ function Dashboard() {
           </div>
 
           <div className="welcome-decoration">PF</div>
+
         </section>
 
         {error && !showCompanyForm && (
@@ -370,44 +510,55 @@ function Dashboard() {
         ) : (
           <>
             {!company ? (
-              <section className="create-company-card">
-                <div className="create-company-icon">＋</div>
+              <>
+                {/* COMPANY SETUP CARD */}
+                <section className="create-company-card">
 
-                <div className="create-company-content">
-                  <span className="section-eyebrow">
-                    GET STARTED
-                  </span>
+                  <div className="create-company-icon">＋</div>
 
-                  <h2>Set up your company workspace</h2>
+                  <div className="create-company-content">
 
-                  <p>
-                    You can explore your dashboard now.
-                    Whenever you're ready, add your company
-                    details to start managing employees and payroll.
-                  </p>
+                    <span className="section-eyebrow">
+                      GET STARTED
+                    </span>
 
-                  <button
-                    className="primary-dashboard-button"
-                    onClick={openCreateForm}
-                  >
-                    Create Your Company ↗
-                  </button>
-                </div>
+                    <h2>Set up your company workspace</h2>
 
-                <div className="optional-label">
-                  OPTIONAL SETUP
-                </div>
-              </section>
+                    <p>
+                      You can explore your dashboard now.
+                      Whenever you're ready, add your company
+                      details to start managing employees and payroll.
+                    </p>
+
+                    <button
+                      className="primary-dashboard-button"
+                      type="button"
+                      onClick={openCreateForm}
+                    >
+                      Create Your Company ↗
+                    </button>
+
+                  </div>
+
+                  <div className="optional-label">
+                    OPTIONAL SETUP
+                  </div>
+
+                </section>
+              </>
             ) : (
               <>
+                {/* COMPANY OVERVIEW */}
                 <section className="company-overview-card">
 
                   <div className="company-overview-info">
+
                     <span className="section-eyebrow">
                       YOUR COMPANY
                     </span>
 
                     <div className="company-title-row">
+
                       <h2>{company.name}</h2>
 
                       <button
@@ -419,6 +570,7 @@ function Dashboard() {
                       >
                         ✎
                       </button>
+
                     </div>
 
                     <p>{company.email}</p>
@@ -426,19 +578,25 @@ function Dashboard() {
                     <span className="company-status">
                       {company.status || "Active"}
                     </span>
+
                   </div>
 
                   <div className="company-initial">
                     {company.name?.charAt(0)?.toUpperCase() || "P"}
                   </div>
+
                 </section>
 
+                {/* DASHBOARD STATS */}
                 <section className="dashboard-stats">
+
                   <div className="stat-card">
                     <span>EMPLOYEES</span>
+
                     <h2>
                       {employeeCount === null ? "—" : employeeCount}
                     </h2>
+
                     <p>Registered employees</p>
                   </div>
 
@@ -453,40 +611,53 @@ function Dashboard() {
                     <h2>—</h2>
                     <p>Payment data will appear here</p>
                   </div>
+
                 </section>
               </>
             )}
           </>
         )}
 
+        {/* LOWER DASHBOARD PANELS */}
         <section className="dashboard-lower">
+
           <div className="dashboard-panel">
+
             <span className="section-eyebrow">
               WORKSPACE ACTIVITY
             </span>
+
             <h3>Recent Activity</h3>
+
             <p>
               Your company and payroll activities will
               appear here as you start using PayFlow.
             </p>
+
           </div>
 
           <div className="dashboard-panel">
+
             <span className="section-eyebrow">
               QUICK OVERVIEW
             </span>
+
             <h3>Getting started</h3>
+
             <p>
               Set up your company, add employees and
               prepare your first payroll batch.
             </p>
+
           </div>
+
         </section>
 
       </main>
 
       {/* COMPANY FORM MODAL */}
       {showCompanyForm && (
+
         <div
           className="company-modal-overlay"
           onClick={(e) => {
@@ -495,6 +666,7 @@ function Dashboard() {
             }
           }}
         >
+
           <div className="company-modal">
 
             <button
@@ -524,18 +696,26 @@ function Dashboard() {
 
               {/* COMPANY LOGO */}
               <div className="logo-upload-section">
+
                 <div className="logo-preview">
+
                   {logoPreview ? (
-                    <img src={logoPreview} alt="Company logo preview" />
+                    <img
+                      src={logoPreview}
+                      alt="Company logo preview"
+                    />
                   ) : (
                     <span>
                       {company?.name?.charAt(0)?.toUpperCase() || "＋"}
                     </span>
                   )}
+
                 </div>
 
                 <div className="logo-upload-info">
+
                   <strong>Company logo</strong>
+
                   <p>PNG, JPG or WEBP · Maximum 5 MB</p>
 
                   <button
@@ -562,6 +742,7 @@ function Dashboard() {
                       onClick={() => {
                         setCompanyLogo(null);
                         setLogoPreview(null);
+
                         if (fileInputRef.current) {
                           fileInputRef.current.value = "";
                         }
@@ -570,15 +751,20 @@ function Dashboard() {
                       Remove image
                     </button>
                   )}
+
                 </div>
+
               </div>
 
               <div className="form-divider" />
 
+              {/* COMPANY DETAILS */}
               <div className="company-form-grid">
 
                 <div className="form-field full-width">
+
                   <label>Company name *</label>
+
                   <input
                     type="text"
                     name="name"
@@ -588,10 +774,13 @@ function Dashboard() {
                     minLength={2}
                     required
                   />
+
                 </div>
 
                 <div className="form-field full-width">
+
                   <label>Company email *</label>
+
                   <input
                     type="email"
                     name="email"
@@ -600,10 +789,13 @@ function Dashboard() {
                     onChange={handleInputChange}
                     required
                   />
+
                 </div>
 
                 <div className="form-field">
+
                   <label>Country *</label>
+
                   <input
                     type="text"
                     name="country"
@@ -612,10 +804,13 @@ function Dashboard() {
                     onChange={handleInputChange}
                     required
                   />
+
                 </div>
 
                 <div className="form-field">
+
                   <label>Base currency *</label>
+
                   <select
                     name="baseCurrency"
                     value={companyForm.baseCurrency}
@@ -627,12 +822,14 @@ function Dashboard() {
                     <option value="EUR">EUR - Euro</option>
                     <option value="GBP">GBP - British Pound</option>
                   </select>
+
                 </div>
 
               </div>
 
               <div className="form-divider" />
 
+              {/* COMPANY ADDRESS */}
               <h3 className="form-section-title">
                 Company address
               </h3>
@@ -640,7 +837,9 @@ function Dashboard() {
               <div className="company-form-grid">
 
                 <div className="form-field full-width">
+
                   <label>Street address</label>
+
                   <input
                     type="text"
                     name="address.street"
@@ -648,10 +847,13 @@ function Dashboard() {
                     value={companyForm.address.street}
                     onChange={handleInputChange}
                   />
+
                 </div>
 
                 <div className="form-field">
+
                   <label>City</label>
+
                   <input
                     type="text"
                     name="address.city"
@@ -659,10 +861,13 @@ function Dashboard() {
                     value={companyForm.address.city}
                     onChange={handleInputChange}
                   />
+
                 </div>
 
                 <div className="form-field">
+
                   <label>State</label>
+
                   <input
                     type="text"
                     name="address.state"
@@ -670,10 +875,13 @@ function Dashboard() {
                     value={companyForm.address.state}
                     onChange={handleInputChange}
                   />
+
                 </div>
 
                 <div className="form-field full-width">
+
                   <label>Postal code</label>
+
                   <input
                     type="text"
                     name="address.postalCode"
@@ -681,20 +889,25 @@ function Dashboard() {
                     value={companyForm.address.postalCode}
                     onChange={handleInputChange}
                   />
+
                 </div>
 
               </div>
 
               <div className="form-divider" />
 
-              {/* PAYOUT PREFERENCES - DISPLAY ONLY */}
+              {/* PAYOUT PREFERENCES */}
               <div className="payout-section">
+
                 <div className="payout-heading">
+
                   <div>
                     <h3>Payout preferences</h3>
                     <p>These settings will be configurable later.</p>
                   </div>
+
                   <span>COMING SOON</span>
+
                 </div>
 
                 <div className="payout-option">
@@ -711,6 +924,7 @@ function Dashboard() {
                   <span>Automatic payouts</span>
                   <strong>Default: Disabled</strong>
                 </div>
+
               </div>
 
               {error && (
@@ -737,7 +951,9 @@ function Dashboard() {
               </p>
 
             </form>
+
           </div>
+
         </div>
       )}
 

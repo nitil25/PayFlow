@@ -1,4 +1,3 @@
-
 import mongoose from "mongoose";
 
 const webhookEventSchema = new mongoose.Schema(
@@ -40,6 +39,31 @@ const webhookEventSchema = new mongoose.Schema(
       min: 0,
     },
 
+    payoutBatchId: {
+      type: String,
+      default: null,
+    },
+
+    payoutItemId: {
+      type: String,
+      default: null,
+    },
+
+    providerTransactionId: {
+      type: String,
+      default: null,
+    },
+
+    senderItemId: {
+      type: String,
+      default: null,
+    },
+
+    providerStatus: {
+      type: String,
+      default: null,
+    },
+
     lastError: {
       type: String,
       default: null,
@@ -55,14 +79,11 @@ const webhookEventSchema = new mongoose.Schema(
       default: null,
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 // Prevent duplicate webhook events
-webhookEventSchema.index(
-  { provider: 1, eventId: 1 },
-  { unique: true }
-);
+webhookEventSchema.index({ provider: 1, eventId: 1 }, { unique: true });
 
 const WebhookEvent = mongoose.model("WebhookEvent", webhookEventSchema);
 

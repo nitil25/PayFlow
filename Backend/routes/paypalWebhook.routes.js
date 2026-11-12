@@ -4,6 +4,6 @@ import { handlePayPalWebhook } from "../controllers/paypalWebhook.controller.js"
 
 const paypalWebhookRouter = express.Router();
 
-paypalWebhookRouter.post("/", isAuth, handlePayPalWebhook);
+paypalWebhookRouter.post("/", handlePayPalWebhook);
 
 export default paypalWebhookRouter;

@@ -2,16 +2,21 @@
 import axios from "axios";
 import { getPayPalAccessToken } from "./paypalService.js";
 
-const PAYPAL_BASE_URL = process.env.PAYPAL_BASE_URL;
-
 export const createPayPalPayout = async (
   payoutItems,
   senderBatchId
 ) => {
   try {
-    // 1. Validate configuration.
-    if (!PAYPAL_BASE_URL) {
-      throw new Error("PayPal base URL is missing");
+    // 1. Validate Sandbox configuration.
+    const PAYPAL_BASE_URL = process.env.PAYPAL_BASE_URL;
+
+    if (
+      PAYPAL_BASE_URL !==
+      "https://api-m.sandbox.paypal.com"
+    ) {
+      throw new Error(
+        "PayPilot testing requires PayPal Sandbox configuration"
+      );
     }
 
     if (!senderBatchId) {
@@ -30,12 +35,13 @@ export const createPayPalPayout = async (
 
     // 3. Validate and prepare payout items.
     const items = payoutItems.map((item) => {
-      const amount = String(item.amount || "").trim();
-      const currency = String(item.currency || "")
+      const amount = String(item.amount ?? "").trim();
+
+      const currency = String(item.currency ?? "")
         .toUpperCase()
         .trim();
 
-      const email = String(item.email || "").trim();
+      const email = String(item.email ?? "").trim();
 
       if (
         !item.employeeId ||
@@ -59,20 +65,20 @@ export const createPayPalPayout = async (
 
         receiver: email,
 
-        note: "PayPilot AI sandbox payroll test",
+        note: "PayPilot AI Sandbox test",
 
         sender_item_id: String(item.payrollItemId),
       };
     });
 
-    // 4. Submit payout request to PayPal Sandbox.
+    // 4. Submit Sandbox payout request.
     const response = await axios.post(
       `${PAYPAL_BASE_URL}/v1/payments/payouts`,
       {
         sender_batch_header: {
           sender_batch_id: senderBatchId,
-          email_subject: "PayPilot AI Sandbox Payroll",
-          email_message: "This is a sandbox payroll test.",
+          email_subject: "PayPilot AI Sandbox Test",
+          email_message: "Sandbox testing only.",
         },
         items,
       },
@@ -94,6 +100,8 @@ export const createPayPalPayout = async (
       error.response?.data || error.message
     );
 
-    throw new Error("PayPal sandbox payout request failed");
+    throw new Error(
+      "PayPal sandbox payout request failed"
+    );
   }
 };

@@ -10,6 +10,11 @@ export const handlePayPalWebhook = async (req, res) => {
       req.body
     );
 
+    console.log("========== PAYPAL WEBHOOK RECEIVED ==========");
+    console.log("Event ID:", req.body?.id);
+    console.log("Event Type:", req.body?.event_type);
+
+
     if (!isVerified) {
       return res.status(400).json({
         success: false,

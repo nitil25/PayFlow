@@ -499,7 +499,7 @@ function Employees() {
 
                                                 <td>
                                                     <span className="employee-salary">
-                                                        {formatSalary(employee.salary)}
+                                                        {formatSalary(employee.salary.amount.$numberDecimal)}
                                                     </span>
                                                 </td>
 

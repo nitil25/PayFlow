@@ -1,14 +1,11 @@
-
 import WebhookEvent from "../models/WebhookEvent.js";
 import { verifyPayPalWebhook } from "../services/paypalWebhook.service.js";
+import { processPayPalWebhookEvent } from "../services/paypalWebhookProcessor.service.js";
 
 export const handlePayPalWebhook = async (req, res) => {
   try {
-    // 1. Verify PayPal signature.
-    const isVerified = await verifyPayPalWebhook(
-      req.headers,
-      req.body
-    );
+    // 1. Verify PayPal's signature.
+    const isVerified = await verifyPayPalWebhook(req.headers, req.body);
 
     if (!isVerified) {
       return res.status(400).json({
@@ -17,7 +14,7 @@ export const handlePayPalWebhook = async (req, res) => {
       });
     }
 
-    // 2. Validate event payload.
+    // 2. Validate the event.
     const event = req.body;
     const resource = event?.resource;
 
@@ -25,7 +22,8 @@ export const handlePayPalWebhook = async (req, res) => {
       !event?.id ||
       typeof event.event_type !== "string" ||
       !resource ||
-      typeof resource !== "object"
+      typeof resource !== "object" ||
+      Array.isArray(resource)
     ) {
       return res.status(400).json({
         success: false,
@@ -45,53 +43,57 @@ export const handlePayPalWebhook = async (req, res) => {
         resource.transaction_id ||
         null,
 
-      payoutBatchId:
-        resource.payout_batch_id || null,
+      payoutBatchId: resource.payout_batch_id || null,
 
-      payoutItemId:
-        resource.payout_item_id || null,
+      payoutItemId: resource.payout_item_id || null,
 
       senderItemId:
-        resource.payout_item?.sender_item_id ||
-        resource.sender_item_id ||
-        null,
+        resource.payout_item?.sender_item_id || resource.sender_item_id || null,
 
-      providerTransactionId:
-        resource.transaction_id || null,
+      providerTransactionId: resource.transaction_id || null,
 
-      providerStatus:
-        resource.transaction_status ||
-        resource.payout_item?.transaction_status ||
-        null,
+      providerStatus: resource.transaction_status || null,
 
       status: "received",
     };
 
-    // 4. Save the verified event.
+    // 4. Save the event, or retrieve it if already received.
+    let savedEvent;
+
     try {
-      await WebhookEvent.create(webhookData);
+      savedEvent = await WebhookEvent.create(webhookData);
     } catch (error) {
-      if (error.code === 11000) {
-        return res.status(200).json({
-          success: true,
-          message: "Webhook event already received",
-        });
+      if (error.code !== 11000) {
+        throw error;
       }
 
-      throw error;
+      savedEvent = await WebhookEvent.findOne({
+        provider: "paypal",
+        eventId: event.id,
+      });
+
+      if (!savedEvent) {
+        throw new Error("Unable to retrieve existing webhook event");
+      }
     }
 
-    // 5. Acknowledge receipt.
+    // 5. Process the saved event.
+    const result = await processPayPalWebhookEvent(savedEvent.eventId);
+
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        message: result.message,
+      });
+    }
+
+    // 6. Acknowledge successful processing.
     return res.status(200).json({
       success: true,
-      message: "PayPal webhook received successfully",
+      message: result.message,
     });
-
   } catch (error) {
-    console.error(
-      "PayPal webhook controller error:",
-      error
-    );
+    console.error("PayPal webhook controller error:", error);
 
     return res.status(500).json({
       success: false,
@@ -99,4 +101,3 @@ export const handlePayPalWebhook = async (req, res) => {
     });
   }
 };
-

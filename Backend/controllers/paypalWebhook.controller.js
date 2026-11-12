@@ -1,5 +1,4 @@
-import WebhookEvent from "../models/WebhookEvent.js";
-import { verifyPayPalWebhook } from "../services/paypalWebhook.service.js";
+import WebhookEvent from "../models/webhookEvents.model.js";
 import { processPayPalWebhookEvent } from "../services/paypalWebhookProcessor.service.js";
 
 export const handlePayPalWebhook = async (req, res) => {

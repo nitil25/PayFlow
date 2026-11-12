@@ -187,6 +187,9 @@ payrollBatchSchema.index({
   createdAt: -1,
 });
 
-const PayrollBatch = mongoose.model("PayrollBatch",payrollBatchSchema);
+const PayrollBatch =
+  mongoose.models.PayrollBatch ||
+  mongoose.model("PayrollBatch", payrollBatchSchema);
+
 
 export default PayrollBatch;

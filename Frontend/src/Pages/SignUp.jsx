@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import API from "../services/api";
 import PayFlowLogo from "../assets/PayFlow.png";
-import "../CSS Styling/Signup.css";
+import "../CSS Styling/SignUp.css";
 import { useDispatch } from "react-redux";
 import { setUserData } from "../Redux/UserSlice";
 

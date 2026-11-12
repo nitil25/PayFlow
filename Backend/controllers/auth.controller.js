@@ -37,6 +37,7 @@ export const SignUp = async (req, res) => {
         httpOnly:true,
         sameSite:"none",
         secure:true,
+        path:"/",
         maxAge:15*24*60*60*1000
     })
 
@@ -87,9 +88,10 @@ export const signIn = async(req,res) => {
         const token = await genToken(isUser._id)
 
         res.cookie("token", token,{
-            http:true,
+            httpOnly:true,
             sameSite:"none",
             secure:true,
+            path:"/",
             maxAge:15*24*60*60*1000
         })
 

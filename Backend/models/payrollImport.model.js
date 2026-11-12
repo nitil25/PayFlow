@@ -1,44 +1,64 @@
+
 import mongoose from "mongoose";
 
-const extractedRecordSchema = new mongoose.Schema({
-    rowNumber:{
-        type:Number,
-        required:true
-    },
-    employeeCode:{
-        type:String,
-        trim:true
-    },
-    name:{
-        type:String,
-        trim:true,
-    },
-    email:{
-        type:String,
-        lowercase:true,
-        trim:true
-    },
-    country:{
-        type:String,
-        trim:true
+const extractedRecordSchema = new mongoose.Schema(
+  {
+    rowNumber: {
+      type: Number,
+      required: true,
     },
 
+    employeeCode: {
+      type: String,
+      trim: true,
+    },
+
+    name: {
+      type: String,
+      trim: true,
+    },
+
+    email: {
+      type: String,
+      lowercase: true,
+      trim: true,
+    },
+
+    country: {
+      type: String,
+      trim: true,
+    },
+
+    // NEW: Employee department
+    department: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    // NEW: Employee job title / designation
+    jobTitle: {
+      type: String,
+      trim: true,
+      default: "",
+    },
 
     salary: {
       amount: {
         type: mongoose.Schema.Types.Decimal128,
       },
+
       currency: {
         type: String,
         uppercase: true,
         trim: true,
       },
+
       payFrequency: {
         type: String,
         enum: ["weekly", "biweekly", "monthly"],
       },
     },
-
 
     recipientEmail: {
       type: String,
@@ -58,7 +78,6 @@ const extractedRecordSchema = new mongoose.Schema({
       default: "create",
     },
 
-
     rowStatus: {
       type: String,
       enum: ["pending", "valid", "invalid", "duplicate"],
@@ -70,8 +89,11 @@ const extractedRecordSchema = new mongoose.Schema({
         type: String,
       },
     ],
-},{_id:true})
-
+  },
+  {
+    _id: true,
+  }
+);
 
 const validationErrorSchema = new mongoose.Schema(
   {
@@ -79,13 +101,16 @@ const validationErrorSchema = new mongoose.Schema(
     field: String,
     code: String,
     message: String,
+
     severity: {
       type: String,
       enum: ["warning", "error"],
       default: "error",
     },
   },
-  { _id: false }
+  {
+    _id: false,
+  }
 );
 
 const payrollImportSchema = new mongoose.Schema(
@@ -163,8 +188,13 @@ const payrollImportSchema = new mongoose.Schema(
   }
 );
 
-payrollImportSchema.index({ companyId: 1, createdAt: -1 });
+payrollImportSchema.index({
+  companyId: 1,
+  createdAt: -1,
+});
 
-const PayrollImport = mongoose.model("PayrollImport", payrollImportSchema)
+const PayrollImport =
+  mongoose.models.PayrollImport ||
+  mongoose.model("PayrollImport", payrollImportSchema);
 
-export default PayrollImport
+export default PayrollImport;

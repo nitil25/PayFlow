@@ -1,223 +1,459 @@
-import User from "../models/user.model.js"
-import Company from "../models/Company.model.js"
-import Employee from "../models/employee.model.js"
 
+import mongoose from "mongoose";
+import Decimal from "decimal.js";
 
-// add an employee POST method /api/add/employee
-export const addEmployee = async(req,res) => {
-    try {
-        const userId = req.userId
-        const user = await User.findById(userId).select("-password")
+import User from "../models/user.model.js";
+import Company from "../models/company.model.js";
+import Employee from "../models/employee.model.js";
+import PayrollBatch from "../models/payrollBatch.model.js";
 
-        if(!user){
-            return res.status(404).json({
-                message:"User not found"
-            })
-        }
+// ==================================================
+// HELPER: GET USER AND COMPANY CONTEXT
+// ==================================================
 
-        const company = await Company.findOne({ownerId:userId})
+const getCompanyContext = async (userId) => {
+  const user = await User.findById(userId).select("-password");
 
-        if(!company){
-            return res.status(400).json({
-                message:"Create a company first"
-            })
-        }
+  if (!user) {
+    return {
+      error: "User not found",
+      status: 404,
+    };
+  }
 
-        const {employeeCode, name, email, phone, country, jobTitle, department, salary, paymentMethods, status} = req.body
+  let company = await Company.findOne({
+    ownerId: userId,
+  });
 
-        if(!employeeCode || !name || !email || !phone || !country || !jobTitle || !department || !salary || !paymentMethods){
-            return res.status(400).json({
-                message:"All fields must be filled"
-            })
-        }
+  if (!company && user.companyId) {
+    company = await Company.findById(user.companyId);
+  }
 
-        const employee = await Employee.create({
-            companyId:company._id,
-            employeeCode,
-            name,
-            email,
-            phone,
-            country,
-            jobTitle,
-            department,
-            salary,
-            paymentMethods,
-        })
+  const companyIds = [
+    company?._id,
+    user.companyId,
+  ].filter(Boolean);
 
-        return res.status(201).json({
-            message:"Employee added successfully",
-            employee
-        })
+  const uniqueCompanyIds = [
+    ...new Map(
+      companyIds.map((id) => [id.toString(), id])
+    ).values(),
+  ];
 
-    } catch (error) {
-        console.log(`Add employee error : ${error.message}`)
-        return res.status(500).json({
-            message:"Internal server error"
-        })
+  if (!uniqueCompanyIds.length) {
+    return {
+      error: "Create a company first",
+      status: 400,
+    };
+  }
+
+  return {
+    user,
+    company,
+    companyId: company?._id || user.companyId,
+    companyIds: uniqueCompanyIds,
+  };
+};
+
+// ==================================================
+// HELPER: RECALCULATE PAYROLL BATCH TOTALS
+// ==================================================
+
+const recalculateBatchTotals = (batch) => {
+  const totals = new Map();
+
+  for (const item of batch.items) {
+    const currency = item.currency?.toUpperCase();
+
+    if (!currency || item.finalAmount == null) {
+      throw new Error(
+        `Invalid payroll amount or currency for ${item.employeeName}.`
+      );
     }
-}
 
-// get all employees GET method /api/employees
-export const getAllEmployees = async(req,res) => {
-    try {
-        const userId = req.userId
-        const user = await User.findById(userId).select("-password")
+    const amount = new Decimal(item.finalAmount.toString());
 
-        if(!user){
-            return res.status(404).json({
-                message:"User not found"
-            })
-        }
-
-        const company = await Company.findOne({ownerId:userId})
-
-        if(!company){
-            return res.status(400).json({
-                message:"Create a company first"
-            })
-        }
-
-        const employees = await Employee.find({companyId:company._id})  
-
-        return res.status(200).json({
-            message:"Employees fetched successfully",
-            employees
-        })
+    if (!amount.isFinite()) {
+      throw new Error("Invalid payroll amount found.");
     }
-    catch(error){
-        console.log(`Get all employee error : ${error.message}`)
-        return res.status(500).json({
-            message:"Internal server error"
-        })
-    }
-}
 
-// get employee by id GET method /api/employee/:id
-export const getEmployeeById = async(req,res) => {
-    try {
-        const userId = req.userId
-        const user = await User.findById(userId).select("-password")
+    totals.set(
+      currency,
+      (totals.get(currency) || new Decimal(0)).plus(amount)
+    );
+  }
 
-        if(!user){
-            return res.status(404).json({
-                message:"User not found"
-            })
-        }
+  batch.currencyBreakdown = Array.from(
+    totals.entries()
+  ).map(([currency, total]) => ({
+    currency,
+    total: mongoose.Types.Decimal128.fromString(
+      total.toFixed(2)
+    ),
+  }));
 
-        const company = await Company.findOne({ownerId:userId})
-
-        if(!company){
-            return res.status(400).json({
-                message:"Create a company first"
-            })
-        }
-
-        const employee = await Employee.findById(req.params.id)
-
-        if(!employee){
-            return res.status(404).json({
-                message:"Employee not found"
-            })
-        }
-
-        return res.status(200).json({
-            message:"Employee fetched successfully",
-            employee
-        })
-    } catch (error) {
-        console.log(`Get employee by id error : ${error.message}`)
-        return res.status(500).json({
-            message:"Internal server error"
-        })
-    }
-}
-
-// update employee details POST method /api/employee/:id
-export const updateEmployeeDetails = async(req,res)=>{
-    try {
-        const userId = req.userId
-        const user = await User.findById(userId).select("-password")
-
-        if(!user){
-            return res.status(404).json({
-                message:"User not found"
-            })
-        }
-
-        const company = await Company.findOne({ownerId:userId})
-
-        if(!company){
-            return res.status(400).json({
-                message:"Create a company first"
-            })
-        }
-
-        const employee = await Employee.findById(req.params.id)
-
-        if(!employee){
-            return res.status(404).json({
-                message:"Employee not found"
-            })
-        }
-
-        // Update employee details
-        const { name, email, phone, country, jobTitle, department, salary, paymentMethods, status } = req.body
-
-        const updatedEmployee = await Employee.findByIdAndUpdate(
-            req.params.id,
-            { name, email, phone, country, jobTitle, department, salary, paymentMethods, status },
-            { new: true }
+  batch.totalAmount =
+    totals.size === 1
+      ? mongoose.Types.Decimal128.fromString(
+          [...totals.values()][0].toFixed(2)
         )
+      : null;
+};
 
-        return res.status(200).json({
-            message:"Employee updated successfully",
-            employee: updatedEmployee
-        })
-    } catch (error) {
-        console.log(`Update employee details error : ${error.message}`)
-        return res.status(500).json({
-            message:"Internal server error"
-        })
+// ==================================================
+// 1. ADD EMPLOYEE
+// POST /api/add/employee
+// ==================================================
+
+export const addEmployee = async (req, res) => {
+  try {
+    const context = await getCompanyContext(req.userId);
+
+    if (context.error) {
+      return res.status(context.status).json({
+        success: false,
+        message: context.error,
+      });
     }
-}
 
-// remove an employee DELETE method /api/employee/:id
-export const removeEmployee = async(req,res)=>{
-    try {
-        const userId = req.userId
-        const user = await User.findById(userId).select("-password")
+    const {
+      employeeCode,
+      name,
+      email,
+      phone,
+      country,
+      jobTitle,
+      department,
+      salary,
+      paymentMethods,
+      status,
+    } = req.body;
 
-        if(!user){
-            return res.status(404).json({
-                message:"User not found"
-            })
-        }
-
-        const company = await Company.findOne({ownerId:userId})
-
-        if(!company){
-            return res.status(400).json({
-                message:"Create a company first"
-            })
-        }
-
-        const employee = await Employee.findById(req.params.id)
-
-        if(!employee){
-            return res.status(404).json({
-                message:"Employee not found"
-            })
-        }
-
-        await Employee.findByIdAndDelete(req.params.id)
-
-        return res.status(200).json({
-            message:"Employee removed successfully"
-        })
-    } catch (error) {
-        console.log(`Remove employee error : ${error.message}`)
-        return res.status(500).json({
-            message:"Internal server error"
-        })
+    if (
+      !employeeCode ||
+      !name ||
+      !email ||
+      !phone ||
+      !country ||
+      !jobTitle ||
+      !department ||
+      !salary ||
+      !paymentMethods
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields must be filled",
+      });
     }
-}
+
+    const existingEmployee = await Employee.findOne({
+      companyId: {
+        $in: context.companyIds,
+      },
+      employeeCode: employeeCode.trim(),
+    });
+
+    if (existingEmployee) {
+      return res.status(409).json({
+        success: false,
+        message: "Employee code already exists",
+      });
+    }
+
+    const employee = await Employee.create({
+      companyId: context.companyId,
+      employeeCode: employeeCode.trim(),
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      phone,
+      country,
+      jobTitle,
+      department,
+      salary,
+      paymentMethods,
+      ...(status ? { status } : {}),
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Employee added successfully",
+      employee,
+    });
+
+  } catch (error) {
+    console.error("Add employee error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to add employee",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
+    });
+  }
+};
+
+// ==================================================
+// 2. GET ALL EMPLOYEES
+// GET /api/employee/all
+// ==================================================
+
+export const getAllEmployees = async (req, res) => {
+  try {
+    const context = await getCompanyContext(req.userId);
+
+    if (context.error) {
+      return res.status(context.status).json({
+        success: false,
+        message: context.error,
+      });
+    }
+
+    const employees = await Employee.find({
+      companyId: {
+        $in: context.companyIds,
+      },
+    }).sort({
+      createdAt: -1,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Employees fetched successfully",
+      count: employees.length,
+      employees,
+    });
+
+  } catch (error) {
+    console.error("Get all employees error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch employees",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
+    });
+  }
+};
+
+// ==================================================
+// 3. GET EMPLOYEE BY ID
+// GET /api/employee/:id
+// ==================================================
+
+export const getEmployeeById = async (req, res) => {
+  try {
+    const context = await getCompanyContext(req.userId);
+
+    if (context.error) {
+      return res.status(context.status).json({
+        success: false,
+        message: context.error,
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid employee ID",
+      });
+    }
+
+    const employee = await Employee.findOne({
+      _id: req.params.id,
+      companyId: {
+        $in: context.companyIds,
+      },
+    });
+
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Employee fetched successfully",
+      employee,
+    });
+
+  } catch (error) {
+    console.error("Get employee by ID error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch employee",
+    });
+  }
+};
+
+// ==================================================
+// 4. UPDATE EMPLOYEE DETAILS
+// POST /api/employee/:id
+// ==================================================
+
+export const updateEmployeeDetails = async (req, res) => {
+  try {
+    const context = await getCompanyContext(req.userId);
+
+    if (context.error) {
+      return res.status(context.status).json({
+        success: false,
+        message: context.error,
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid employee ID",
+      });
+    }
+
+    const employee = await Employee.findOne({
+      _id: req.params.id,
+      companyId: {
+        $in: context.companyIds,
+      },
+    });
+
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found",
+      });
+    }
+
+    const allowedFields = [
+      "name",
+      "email",
+      "phone",
+      "country",
+      "jobTitle",
+      "department",
+      "salary",
+      "paymentMethods",
+      "status",
+    ];
+
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        employee[field] = req.body[field];
+      }
+    }
+
+    await employee.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Employee updated successfully",
+      employee,
+    });
+
+  } catch (error) {
+    console.error("Update employee details error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update employee",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
+    });
+  }
+};
+
+// ==================================================
+// 5. REMOVE EMPLOYEE
+// DELETE /api/employee/remove/:id
+// ==================================================
+
+export const removeEmployee = async (req, res) => {
+  try {
+    const context = await getCompanyContext(req.userId);
+
+    if (context.error) {
+      return res.status(context.status).json({
+        success: false,
+        message: context.error,
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid employee ID",
+      });
+    }
+
+    const employee = await Employee.findOne({
+      _id: req.params.id,
+      companyId: {
+        $in: context.companyIds,
+      },
+    });
+
+    if (!employee) {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found",
+      });
+    }
+
+    // Find editable payroll batches
+    const batches = await PayrollBatch.find({
+      companyId: {
+        $in: context.companyIds,
+      },
+      status: {
+        $in: ["draft", "pending_approval"],
+      },
+      "items.employeeId": employee._id,
+    });
+
+    let updatedBatchCount = 0;
+
+    for (const batch of batches) {
+      batch.items.pull({
+        employeeId: employee._id,
+      });
+
+      recalculateBatchTotals(batch);
+
+      await batch.save();
+
+      updatedBatchCount++;
+    }
+
+    // Delete employee after batch cleanup
+    await Employee.findOneAndDelete({
+      _id: employee._id,
+      companyId: {
+        $in: context.companyIds,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Employee removed successfully from the company and eligible payroll batches.",
+      employeeId: employee._id,
+      updatedBatchCount,
+    });
+
+  } catch (error) {
+    console.error("Remove employee error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message || "Unable to remove employee.",
+    });
+  }
+};

@@ -304,4 +304,23 @@
     width: 100%;
     flex: 1;
   }
+  
+.workspace-nav-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.workspace-coming-soon {
+  margin-left: auto;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.09);
+  color: #c4bdd8;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
 }

@@ -1,17 +1,18 @@
+
 import mongoose from "mongoose";
 import Decimal from "decimal.js";
 
 import PayrollBatch from "../models/payrollBatch.model.js";
 import Employee from "../models/employee.model.js";
-import User from "../models/user.model.js"
+import User from "../models/user.model.js";
 
-// Helper: convert a value into Decimal safely
+// Convert values safely into Decimal
 const toDecimal = (value) => {
   try {
     const result = new Decimal(String(value));
 
     if (!result.isFinite()) {
-      throw new Error("Invalid amount");
+      throw new Error();
     }
 
     return result;
@@ -20,14 +21,12 @@ const toDecimal = (value) => {
   }
 };
 
-// Helper: convert Decimal into MongoDB Decimal128
+// Convert Decimal into MongoDB Decimal128
 const toDecimal128 = (value) => {
-  return mongoose.Types.Decimal128.fromString(
-    value.toString()
-  );
+  return mongoose.Types.Decimal128.fromString(value.toString());
 };
 
-// Helper: get a company's payroll batch
+// Find a batch belonging to a specific company
 const findCompanyBatch = (id, companyId) => {
   if (!mongoose.Types.ObjectId.isValid(id)) {
     return null;
@@ -39,7 +38,7 @@ const findCompanyBatch = (id, companyId) => {
   });
 };
 
-// Helper: calculate every employee's final amount and currency totals
+// Calculate employee amounts and currency totals
 const calculateBatchTotals = (items) => {
   const totals = new Map();
 
@@ -50,19 +49,31 @@ const calculateBatchTotals = (items) => {
       throw new Error("Base salary cannot be negative.");
     }
 
+    if (!item.currency) {
+      throw new Error(`Currency is missing for ${item.employeeName}.`);
+    }
+
     let finalAmount = base;
 
     for (const adjustment of item.adjustments || []) {
       const amount = toDecimal(adjustment.amount);
 
-      if (!amount.isFinite() || amount.lte(0)) {
+      if (amount.lte(0)) {
         throw new Error("Adjustment amounts must be positive.");
+      }
+
+      if (!adjustment.reason?.trim()) {
+        throw new Error("Every adjustment needs a reason.");
       }
 
       if (adjustment.type === "deduction") {
         finalAmount = finalAmount.minus(amount);
-      } else {
+      } else if (
+        ["bonus", "overtime", "other"].includes(adjustment.type)
+      ) {
         finalAmount = finalAmount.plus(amount);
+      } else {
+        throw new Error("Invalid adjustment type.");
       }
     }
 
@@ -82,24 +93,17 @@ const calculateBatchTotals = (items) => {
     );
   }
 
-  const currencyBreakdown = Array.from(
-    totals.entries()
-  ).map(([currency, total]) => ({
-    currency,
-    total: toDecimal128(total),
-  }));
-
-  // totalAmount is meaningful only when there is one currency
-//   const totalAmount =
-//     totals.size === 1
-//       ? toDecimal128([...totals.values()][0])
-//       : toDecimal128(new Decimal(0));
-
+  const currencyBreakdown = Array.from(totals.entries()).map(
+    ([currency, total]) => ({
+      currency,
+      total: toDecimal128(total),
+    })
+  );
 
   const totalAmount =
     totals.size === 1
-        ? toDecimal128([...totals.values()][0])
-        : null;
+      ? toDecimal128([...totals.values()][0])
+      : null;
 
   return {
     currencyBreakdown,
@@ -107,7 +111,7 @@ const calculateBatchTotals = (items) => {
   };
 };
 
-// Helper: calculate and save totals
+// Refresh and save batch totals
 const refreshBatchTotals = (batch) => {
   const totals = calculateBatchTotals(batch.items);
 
@@ -115,459 +119,600 @@ const refreshBatchTotals = (batch) => {
   batch.totalAmount = totals.totalAmount;
 };
 
-// Create Payroll Batch  POST method
-export const createPayrollBatch = async(req, res) => {
-    try {
+// Get authenticated company user
+const getCompanyUser = async (req) => {
+  const user = await User.findById(req.userId);
 
-        const userId = req.userId
+  if (!user) {
+    throw new Error("User not found.");
+  }
 
-        const user = await User.findById(userId)
+  if (!user.companyId) {
+    throw new Error("No company is associated with this account.");
+  }
 
-        if(!user){
-            return res.status(404).json({
-                message: "User not found"
-            })
-        }
+  return user;
+};
 
-        const {batchName, startDate, endDate, employeeIds} = req.body
+// 1. CREATE PAYROLL BATCH
+export const createPayrollBatch = async (req, res) => {
+  try {
+    const user = await getCompanyUser(req);
 
-        if(!startDate || !endDate){
-            return res.status(400).json({
-                message:"Payroll start date and end date are required"
-            })
-        }
+    const { batchName, startDate, endDate, employeeIds } = req.body;
 
-        const start = new Date(startDate)
-        const end = new Date(endDate)
-
-        if(Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end){
-            message:"Please provide a valid payroll date"
-        }
-
-
-        if(employeeIds !== undefined  && (!Array.isArray(employeeIds) || employeeIds.length === 0 || employeeIds.some((id) => !mongoose.Types.ObjectId.isValid(id)))){
-            return res.status(400).json({
-                message:"Please provide valid employee IDs"
-            })
-        }
-
-        const employeeFilter = {
-            companyId : user.companyId,
-            status : "active"
-        }
-
-        if(employeeIds){
-            employeeFilter._id = {$in : employeeIds}
-        }
-
-        const employees = await Employee.find(employeeFilter)
-
-        if(!employees.length){
-            return res.status(400).json({
-                message:"No active employee were found"
-            })
-        }
-
-        if(employeeIds && employees.length !== new Set(employeeIds).size){
-            return res.status(400).json({
-                message:"Some employees were not found in your company or are incative"
-            })
-        }
-
-        const items = employees.map((employee) => ({
-            employeeId:employee._id,
-            employeeName: employee.name,
-            employeeCode: employee.employeeCode,
-            country:employee.country,
-            baseAmount:employee.salary.amount,
-            adjustments: [],
-            finalAmount: employee.salary.amount,
-            currency: employee.salary.currency,
-            paymentStatus: "pending"
-        }))
-
-        const batch = await PayrollBatch.create({
-            companyId: user.companyId,
-            batchName,
-            period:{
-                startDate:start,
-                endDate:end
-            },
-            items,
-            createdBy:user._id,
-            status:"draft"
-        })
-
-        refreshBatchTotals(batch)
-
-        await batch.save()
-
-        return res.status(201).json({
-            message:"Payroll batch created successfully",
-            data:batch
-        })
-
-    } catch (error) {
-        console.log(`Create payroll batch error : ${error.message}`)
-        return res.status(400).json({
-            message:"Internal server error"
-        })
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        message: "Payroll start date and end date are required.",
+      });
     }
-}
 
-// Get all the payroll batched GET method
-export const getPayrollBatch = async(req, res) => {
-    try {
-        const userId = req.userId
+    const start = new Date(startDate);
+    const end = new Date(endDate);
 
-        const user = await User.findById(userId)
-
-        if(!user){
-            return res.status(404).json({
-                message:"User not found"
-            })
-        }
-
-        const batches = await PayrollBatch.find({
-            companyId:user.companyId
-        }).select("-items").sort({createdAt: -1})
-
-        return res.status(200).json({
-            count:batches.length,
-            data:batches
-        })
-
-    } catch (error) {
-        console.log(`Get all payroll error : ${error.message}`)
-        return res.status(400).json({
-            message: "Failed to fetch payroll batches"
-        })
+    if (
+      Number.isNaN(start.getTime()) ||
+      Number.isNaN(end.getTime()) ||
+      start > end
+    ) {
+      return res.status(400).json({
+        message: "Please provide a valid payroll date range.",
+      });
     }
-}
 
-// Get payroll batch by id  GET method
-export const getPayrollBatchById = async(req, res) => {
-    try {
-        const userId = req.userId
-        const user = await User.findById(userId)
-
-        if(!user){
-            return res.status(404).json({
-                message: "User not found"
-            })
-        }
-
-        const batch = await findCompanyBatch(req.paramd.id, user.companyId)
-
-        if(!batch){
-            return res.status(404).json({
-                message:"Payroll batch not found"
-            })
-        }
-
-        return res.status(200).json({
-            data:batch
-        })
-
-    } catch (error) {
-        console.log(`Get payroll batch by id error : ${error.message}`)
-        return res.status(400).json({
-            message: "Failed to fetch the payroll batch"
-        })
+    if (
+      employeeIds !== undefined &&
+      (
+        !Array.isArray(employeeIds) ||
+        employeeIds.length === 0 ||
+        employeeIds.some(
+          (id) => !mongoose.Types.ObjectId.isValid(id)
+        )
+      )
+    ) {
+      return res.status(400).json({
+        message: "Please provide valid employee IDs.",
+      });
     }
-}
 
-// update a draft payroll batch  POST method
-export const updatePayrollBatch = async(req, res) => {
-    try {
-        const userId = req.userId
-
-        const user = await User.findById(userId)
-
-        if(!user){
-            return res.status(404).json({
-                message:"User not found"
-            })
-        }
-
-        const batch = await findCompanyBatch(req.params.id, user.companyId)
-
-        if(!batch){
-            return res.status(404).json({
-                message:"Payroll batch not found"
-            })
-        }
-
-        if(batch.status !== "draft"){
-            return res.status(400).json({
-                message:"Only draft payroll batches can be edited"
-            })
-        }
-
-        const {batchName, startDate, endDate, items} = req.body
-
-        if(batchName !== undefined){
-            batch.batchName = batchName
-        }
-
-        if(startDate !== undefined || endDate !== undefined){
-            const start = new Date(startDate ?? batch.period.startDate)
-            const end = new Date(endDate ?? batch.period.endDate)
-
-            if(Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end ){
-                return res.status(400).json({
-                    message:"Invalid payroll date range"
-                })
-            }
-
-            batch.period.startDate = start
-            batch.period.endDate = end
-        }
-
-        if(items !== undefined){
-            if(!Array.isArray(items)){
-                return res.status(400).json({
-                    message:"Items must be an array"
-                })
-            }
-        }
-
-        for(const update of items){
-            const items = batch.items.find(
-                (entry) => entry._id.toString() === update.itemId
-            )
-
-            if(!items){
-                return res.status(400).json({
-                    message:"Invalid payroll item"
-                })
-            }
-
-            if(update.adjustments !== undefined){
-                if(!Array.isArray(update.adjustments)){
-                    return res.status(400).json({
-                        message:"Adjusments must be an array"
-                    })
-                }
-
-                item.adjustments = update.adjustments.map((adjustment) => ({
-                    type:adjustment.type,
-                    amount: adjustment.amount,
-                    reason: adjustment.reason
-                }))
-            }
-        }
-
-        refreshBatchTotals(batch)
-        await batch.save()
-
-        return res.status(400).json({
-            message: "Payroll batch updated successfully",
-            data:batch
-        })
-
-    } catch (error) {
-        console.log(`update payroll batch error : ${error.message}`)
-        return res.status(400).json({
-            message:"Failed to update the payroll"
-        })
+    if (
+      employeeIds &&
+      new Set(employeeIds.map(String)).size !== employeeIds.length
+    ) {
+      return res.status(400).json({
+        message: "Duplicate employee IDs are not allowed.",
+      });
     }
-}
 
-// Calculate payroll GET method
-export const calculatePayrollBatch = async(req, res) => {
-    try {
-        const userId = req.userId
-        const user = await User.findById(userId)
+    const employeeFilter = {
+      companyId: user.companyId,
+      status: "active",
+    };
 
-        if(!user){
-            return res.status(400).json({
-                message:"User not found"
-            })
-        }
+    if (employeeIds !== undefined) {
+      employeeFilter._id = { $in: employeeIds };
+    }
 
-        const batch = await findCompanyBatch(req.params.id, user.companyId)
+    const employees = await Employee.find(employeeFilter);
 
-        if(!batch){
-            return res.status(404).json({
-                message:"Payroll batch not found"
-            })
-        }
+    if (!employees.length) {
+      return res.status(400).json({
+        message: "No active employees were found.",
+      });
+    }
 
-        if(batch.status !== "draft"){
-            return res.status(400).json({
-                message:"Only draft batches can be recalculated"
-            })
-        }
+    if (
+      employeeIds &&
+      employees.length !== employeeIds.length
+    ) {
+      return res.status(400).json({
+        message: "Some employees were not found in your company or are inactive.",
+      });
+    }
 
-        refreshBatchTotals(batch)
-        await batch.save()
+    const items = employees.map((employee) => ({
+      employeeId: employee._id,
+      employeeName: employee.name,
+      employeeCode: employee.employeeCode,
+      country: employee.country,
+      baseAmount: employee.salary.amount,
+      adjustments: [],
+      finalAmount: employee.salary.amount,
+      currency: employee.salary.currency,
+      paymentStatus: "pending",
+    }));
 
-        return res.status(200).json({
-            message:"Payroll calculated successfully",
-            data:{
-                items:batch.items,
-                totalAmount: batch.totalAmount,
-                currencyBreakdown : batch.currencyBreakdown
-            }
-        })
+    const batch = await PayrollBatch.create({
+      companyId: user.companyId,
+      batchName: batchName?.trim() || `Payroll ${start.toLocaleDateString()}`,
+      period: {
+        startDate: start,
+        endDate: end,
+      },
+      items,
+      createdBy: user._id,
+      status: "draft",
+    });
 
-    } catch (error) {
-        console.log(`Calculate the payroll batch error : ${error.message}`)
+    refreshBatchTotals(batch);
+    await batch.save();
+
+    return res.status(201).json({
+      message: "Payroll batch created successfully.",
+      data: batch,
+    });
+  } catch (error) {
+    console.error("Create payroll batch error:", error.message);
+
+    return res.status(400).json({
+      message: error.message || "Failed to create payroll batch.",
+    });
+  }
+};
+
+// 2. GET ALL PAYROLL BATCHES
+export const getPayrollBatch = async (req, res) => {
+  try {
+    const user = await getCompanyUser(req);
+
+    const batches = await PayrollBatch.find({
+      companyId: user.companyId,
+    })
+      .select("-items")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      count: batches.length,
+      data: batches,
+    });
+  } catch (error) {
+    console.error("Get payroll batches error:", error.message);
+
+    return res.status(400).json({
+      message: error.message || "Failed to fetch payroll batches.",
+    });
+  }
+};
+
+// 3. GET ONE PAYROLL BATCH
+export const getPayrollBatchById = async (req, res) => {
+  try {
+    const user = await getCompanyUser(req);
+
+    const batch = await findCompanyBatch(
+      req.params.id,
+      user.companyId
+    );
+
+    if (!batch) {
+      return res.status(404).json({
+        message: "Payroll batch not found.",
+      });
+    }
+
+    return res.status(200).json({
+      data: batch,
+    });
+  } catch (error) {
+    console.error("Get payroll batch error:", error.message);
+
+    return res.status(400).json({
+      message: "Failed to fetch payroll batch.",
+    });
+  }
+};
+
+// 4. UPDATE A DRAFT PAYROLL BATCH
+export const updatePayrollBatch = async (req, res) => {
+  try {
+    const user = await getCompanyUser(req);
+
+    const batch = await findCompanyBatch(
+      req.params.id,
+      user.companyId
+    );
+
+    if (!batch) {
+      return res.status(404).json({
+        message: "Payroll batch not found.",
+      });
+    }
+
+    if (batch.status !== "draft") {
+      return res.status(400).json({
+        message: "Only draft payroll batches can be edited.",
+      });
+    }
+
+    const { batchName, startDate, endDate, items } = req.body;
+
+    if (batchName !== undefined) {
+      batch.batchName = batchName.trim();
+    }
+
+    if (startDate !== undefined || endDate !== undefined) {
+      const start = new Date(
+        startDate ?? batch.period.startDate
+      );
+
+      const end = new Date(
+        endDate ?? batch.period.endDate
+      );
+
+      if (
+        Number.isNaN(start.getTime()) ||
+        Number.isNaN(end.getTime()) ||
+        start > end
+      ) {
         return res.status(400).json({
-            message:"Failed to calculate the payroll"
-        })
+          message: "Invalid payroll date range.",
+        });
+      }
+
+      batch.period.startDate = start;
+      batch.period.endDate = end;
     }
-}
 
-// Submit payroll for the approval
-// need to 3 more i am tired now and i need sleep
-export const submitPayrollBatch = async(req, res) => {
-    try {
-        const userId = req.userId
-        const user = await User.findById(userId).select("-password")
-
-        if(!user){
-            return res.status(400).json({
-                message:"User not found"
-            })
-        }
-
-        const batch = await findCompanyBatch(req.params.id, user.companyId)
-
-        if(!batch){
-            return res.status(404).json({
-                message:"Payroll batch not found"
-            })
-        }
-
-        if(batch.status !== "draft" || !batch.items.length){
-            return res.status(400).json({
-                message:"Only non-empty draft batched can be submiitted"
-            })
-        }
-
-        refreshBatchTotals(batch)
-
-        for(const item of batch.items){
-            if(!item.employeeId || !item.currency){
-                return res.status(400).json({
-                    message:"Every payroll items need an employee and currency"
-                })
-            }
-        }
-
-        batch.approvalVersion += 1
-        batch.approvedVersion = null
-        batch.approvedBy = null
-        batch.approvedAt = null
-        batch.status = "pending_approval"
-
-
-        await batch.save()
-
-        return res.status(200).json({
-            message:"Payroll submitted for approval",
-            data:batch
-        })
-
-    } catch (error) {
-        console.log(`Submit payroll error : ${error.message}`)
+    if (items !== undefined) {
+      if (!Array.isArray(items)) {
         return res.status(400).json({
-            message:"Failed to submit the payroll batch for approval"
-        })
-    }
-}
+          message: "Items must be an array.",
+        });
+      }
 
-// Approve the payroll 
-export const approvePayrollBatch = async(req, res) => {
-    try {
-        const userId = req.userId
-        const user = await User.findById(userId).select("-password")
+      for (const update of items) {
+        const item = batch.items.find(
+          (entry) => entry._id.toString() === update.itemId
+        );
 
-        if(!user){
-            return res.status(404).json({
-                message:"User not found"
-            })
+        if (!item) {
+          return res.status(400).json({
+            message: "Invalid payroll item.",
+          });
         }
 
-        const batch = await findCompanyBatch(req.params.id, user.companyId)
-
-        if(!batch){
-            return res.status(404).json({
-                message:"Payroll batch not found"
-            })
-        }
-
-        if(batch.status !== "pending_approval"){
+        if (update.adjustments !== undefined) {
+          if (!Array.isArray(update.adjustments)) {
             return res.status(400).json({
-                message:"This payroll is not waiting for approval"
+              message: "Adjustments must be an array.",
+            });
+          }
+
+          item.adjustments = update.adjustments.map(
+            (adjustment) => ({
+              type: adjustment.type,
+              amount: adjustment.amount,
+              reason: adjustment.reason,
             })
+          );
         }
+      }
+    }
 
-        refreshBatchTotals(batch)
+    refreshBatchTotals(batch);
+    await batch.save();
 
-        batch.status = "approved"
-        batch.approvedBy = user._id
-        batch.approvedAt = new Date()
-        batch.approvedVersion = batch.approvalVersion
+    return res.status(200).json({
+      message: "Payroll batch updated successfully.",
+      data: batch,
+    });
+  } catch (error) {
+    console.error("Update payroll batch error:", error.message);
 
-        await batch.save()
+    return res.status(400).json({
+      message: error.message || "Failed to update payroll batch.",
+    });
+  }
+};
 
-        return res.status(200).json({
-            message:"Payroll batch approved successfully"
-        })
+// 5. CALCULATE PAYROLL
+export const calculatePayrollBatch = async (req, res) => {
+  try {
+    const user = await getCompanyUser(req);
 
-    } catch (error) {
-        console.log(`Failed to approve the payroll : ${error.message}`)
+    const batch = await findCompanyBatch(
+      req.params.id,
+      user.companyId
+    );
+
+    if (!batch) {
+      return res.status(404).json({
+        message: "Payroll batch not found.",
+      });
+    }
+
+    if (batch.status !== "draft") {
+      return res.status(400).json({
+        message: "Only draft batches can be recalculated.",
+      });
+    }
+
+    refreshBatchTotals(batch);
+    await batch.save();
+
+    return res.status(200).json({
+      message: "Payroll calculated successfully.",
+      data: {
+        items: batch.items,
+        totalAmount: batch.totalAmount,
+        currencyBreakdown: batch.currencyBreakdown,
+      },
+    });
+  } catch (error) {
+    console.error("Calculate payroll error:", error.message);
+
+    return res.status(400).json({
+      message: error.message || "Failed to calculate payroll.",
+    });
+  }
+};
+
+// 6. SUBMIT PAYROLL FOR APPROVAL
+export const submitPayrollBatch = async (req, res) => {
+  try {
+    const user = await getCompanyUser(req);
+
+    const batch = await findCompanyBatch(
+      req.params.id,
+      user.companyId
+    );
+
+    if (!batch) {
+      return res.status(404).json({
+        message: "Payroll batch not found.",
+      });
+    }
+
+    if (batch.status !== "draft" || !batch.items.length) {
+      return res.status(400).json({
+        message: "Only non-empty draft batches can be submitted.",
+      });
+    }
+
+    refreshBatchTotals(batch);
+
+    for (const item of batch.items) {
+      if (!item.employeeId || !item.currency) {
         return res.status(400).json({
-            message:"Failed to approve the payroll batch"
-        })
+          message: "Every payroll item needs an employee and currency.",
+        });
+      }
     }
-}
 
-// delete the payroll batch
-export const deletePayrollBatch = async(req, res) => {
-    try {
-        const userId = req.userId
+    batch.approvalVersion += 1;
+    batch.approvedVersion = null;
+    batch.approvedBy = null;
+    batch.approvedAt = null;
+    batch.status = "pending_approval";
 
-        const user = await User.findById(userId).select("-password")
+    await batch.save();
 
-        if(!user){
-            return res.status(404).json({
-                message:"User not found"
-            })
-        }
+    return res.status(200).json({
+      message: "Payroll submitted for approval.",
+      data: batch,
+    });
+  } catch (error) {
+    console.error("Submit payroll error:", error.message);
 
-        const batch = await findCompanyBatch(req.params.id, user.companyId)
+    return res.status(400).json({
+      message: error.message || "Failed to submit payroll.",
+    });
+  }
+};
 
-        if(!batch){
-            return res.status(404).json({
-                message: "Payroll batch not found"
-            })
-        }
+// 7. APPROVE PAYROLL
+export const approvePayrollBatch = async (req, res) => {
+  try {
+    const user = await getCompanyUser(req);
 
-        const cancellableStatuses = ["draft","pending_approval","approved","scheduled"]
+    const batch = await findCompanyBatch(
+      req.params.id,
+      user.companyId
+    );
 
-        if(!cancellableStatuses.includes(batch.status)){
-            return res.status(400).json({
-                message:"This payroll batch is no longer be cancelled"
-            })
-        }
-
-        batch.status = "cancelled"
-        batch.approvedVersion = null
-
-        await batch.save()
-
-        return res.status(200).json({
-            message:"Payroll batch cancelled successfully"
-        })
-
-    } catch (error) {
-        console.log(`Delete payroll batch error : ${error.message}`)
-        return res.status(404).json({
-            message:"Failed to delete the payroll batch"
-        })
+    if (!batch) {
+      return res.status(404).json({
+        message: "Payroll batch not found.",
+      });
     }
-}
+
+    if (batch.status !== "pending_approval") {
+      return res.status(400).json({
+        message: "This payroll is not waiting for approval.",
+      });
+    }
+
+    refreshBatchTotals(batch);
+
+    batch.status = "approved";
+    batch.approvedBy = user._id;
+    batch.approvedAt = new Date();
+    batch.approvedVersion = batch.approvalVersion;
+
+    await batch.save();
+
+    return res.status(200).json({
+      message: "Payroll batch approved successfully.",
+      data: batch,
+    });
+  } catch (error) {
+    console.error("Approve payroll error:", error.message);
+
+    return res.status(400).json({
+      message: error.message || "Failed to approve payroll.",
+    });
+  }
+};
+
+// 8. CANCEL PAYROLL BATCH
+export const deletePayrollBatch = async (req, res) => {
+  try {
+    const user = await getCompanyUser(req);
+
+    const batch = await findCompanyBatch(
+      req.params.id,
+      user.companyId
+    );
+
+    if (!batch) {
+      return res.status(404).json({
+        message: "Payroll batch not found.",
+      });
+    }
+
+    const cancellableStatuses = [
+      "draft",
+      "pending_approval",
+      "approved",
+      "scheduled",
+    ];
+
+    if (!cancellableStatuses.includes(batch.status)) {
+      return res.status(400).json({
+        message: "This payroll batch can no longer be cancelled.",
+      });
+    }
+
+    batch.status = "cancelled";
+    batch.approvedVersion = null;
+
+    await batch.save();
+
+    return res.status(200).json({
+      message: "Payroll batch cancelled successfully.",
+      data: batch,
+    });
+  } catch (error) {
+    console.error("Cancel payroll error:", error.message);
+
+    return res.status(400).json({
+      message: error.message || "Failed to cancel payroll batch.",
+    });
+  }
+};
+
+// 9. PROCESS PAYROLL PAYMENTS (SIMULATED)
+export const processPayrollBatch = async (req, res) => {
+  try {
+    const user = await getCompanyUser(req);
+
+    const batch = await findCompanyBatch(
+      req.params.id,
+      user.companyId
+    );
+
+    if (!batch) {
+      return res.status(404).json({
+        message: "Payroll batch not found.",
+      });
+    }
+
+    if (!["approved", "partially_failed"].includes(batch.status)) {
+      return res.status(400).json({
+        message: "Only approved or partially failed payroll batches can be processed.",
+      });
+    }
+
+    if (!batch.items.length) {
+      return res.status(400).json({
+        message: "This payroll batch has no employees.",
+      });
+    }
+
+    // Optional IDs allow controlled failure simulation for testing.
+    const failedItemIds = req.body.failedItemIds || [];
+
+    if (
+      !Array.isArray(failedItemIds) ||
+      failedItemIds.some(
+        (id) => !mongoose.Types.ObjectId.isValid(id)
+      )
+    ) {
+      return res.status(400).json({
+        message: "Invalid failed employee item IDs.",
+      });
+    }
+
+    const failedIds = new Set(failedItemIds.map(String));
+
+    const matchingFailedItems = batch.items.filter((item) =>
+      failedIds.has(item._id.toString())
+    );
+
+    if (matchingFailedItems.length !== failedIds.size) {
+      return res.status(400).json({
+        message: "One or more failed item IDs do not belong to this batch.",
+      });
+    }
+
+    const eligibleItems = batch.items.filter((item) =>
+      ["pending", "failed"].includes(item.paymentStatus)
+    );
+
+    if (!eligibleItems.length) {
+      return res.status(400).json({
+        message: "There are no pending or failed payments to process.",
+      });
+    }
+
+    // First save processing status.
+    batch.status = "processing";
+
+    for (const item of eligibleItems) {
+      item.paymentStatus = "processing";
+    }
+
+    await batch.save();
+
+    // Simulate payment results and persist them.
+    for (const item of eligibleItems) {
+      item.paymentStatus = failedIds.has(item._id.toString())
+        ? "failed"
+        : "completed";
+    }
+
+    const completedCount = batch.items.filter(
+      (item) => item.paymentStatus === "completed"
+    ).length;
+
+    const failedCount = batch.items.filter(
+      (item) => item.paymentStatus === "failed"
+    ).length;
+
+    const pendingCount = batch.items.filter(
+      (item) =>
+        ["pending", "processing"].includes(item.paymentStatus)
+    ).length;
+
+    if (pendingCount > 0) {
+      batch.status = "processing";
+    } else if (failedCount > 0 && completedCount > 0) {
+      batch.status = "partially_failed";
+    } else if (failedCount > 0) {
+      batch.status = "failed";
+    } else {
+      batch.status = "completed";
+    }
+
+    await batch.save();
+
+    return res.status(200).json({
+      message: "Simulated payroll processing completed.",
+      data: {
+        batchId: batch._id,
+        batchStatus: batch.status,
+        totalEmployees: batch.items.length,
+        completedCount,
+        failedCount,
+        pendingCount,
+        items: batch.items,
+      },
+    });
+  } catch (error) {
+    console.error("Process payroll error:", error.message);
+
+    return res.status(500).json({
+      message: error.message || "Failed to process payroll.",
+    });
+  }
+};

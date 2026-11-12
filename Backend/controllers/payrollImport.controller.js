@@ -1,204 +1,343 @@
 
-/*
-upload payroll file
-get payroll imports
-get payroll import by id
-process payroll import
-review payroll import
-approved payroll import
-deleted payroll import
-*/
+import fs from "fs";
+import path from "path";
+import xlsx from "xlsx";
+import mongoose from "mongoose";
 
+import PayrollImport from "../models/payrollImport.model.js";
+import PayrollBatch from "../models/payrollBatch.model.js";
+import User from "../models/user.model.js";
+import Employee from "../models/employee.model.js";
 
-import fs from "fs"
-import path from "path"
-import xlsx from "xlsx"
-import PayrollImport from "../models/payrollImport.model.js"
-import User from "../models/user.model.js"
-import Employee from "../models/employee.model.js"
-import mongoose from "mongoose"
+// ==================================================
+// HELPER FUNCTIONS
+// ==================================================
 
-
-// Helper : makes spreadsheet headers consistent
-const normalizeHeader = (header) => {
-    return String(header || "")
+const normalizeHeader = (header) =>
+  String(header || "")
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, "")
-}
+    .replace(/[^a-z0-9]/g, "");
 
-// Helper : read a value using the possible column names
 const getValue = (row, possibleHeaders) => {
-    for(const header of possibleHeaders){
-        const value = row[header]
+  for (const header of possibleHeaders) {
+    const value = row[header];
 
-        if(value !== undefined && value !== null && value !== ""){
-            return String(value).trim()
-        }
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      return String(value).trim();
     }
-    return ""
-}
+  }
 
-// upload payroll file controller POST method
-export const uploadPayrollFile = async(req, res) => {
-    try {
+  return "";
+};
 
-        const userId = req.userId
+// Handles values such as 50000, 50,000, ₹50,000 and $50000
+const parseSalary = (value) => {
+  if (value === undefined || value === null || value === "") {
+    return "";
+  }
 
-        const user = await User.findById(userId).select("-password")
+  return String(value).replace(/[,\s₹$€£]/g, "").trim();
+};
 
-        if(!user){
-            return res.status(400).json({
-                message:"User not found"
-            })
-        }
+const toDecimal128 = (value) =>
+  mongoose.Types.Decimal128.fromString(String(value));
 
-        if(!req.file){
-            return res.status(400).json({
-                message:"Please upload s payroll file"
-            })
-        }
+const validEmail = (email) =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email || "");
 
-        const extension = path.extname(req.file.originalname).toLowerCase().replace(".","")
+const calculateBatchTotals = (items) => {
+  const currencyTotals = {};
 
-        const allowedTypes = ["csv", "xlsx", "xls"]
+  for (const item of items) {
+    const currency = item.currency;
+    const amount = Number(item.finalAmount.toString());
 
-        if(!allowedTypes.includes(extension)){
-            fs.unlink(req.file.path, ()=>{})
+    currencyTotals[currency] =
+      (currencyTotals[currency] || 0) + amount;
+  }
 
-            return res.status(400).json({
-                message:"Only csv and Excel files are supported currently"
-            })
-        }
+  const currencyBreakdown = Object.entries(currencyTotals).map(
+    ([currency, amount]) => ({
+      currency,
+      total: toDecimal128(amount.toFixed(2)),
+    })
+  );
 
-        const payrollImport = await PayrollImport.create({
-            companyId: user.companyId,
-            uploadedBy: user._id,
-            originalFileName: req.file.originalname,
-            fileType: extension,
-            storageKey: req.file.path,
-            fileSize: req.file.size,
-            processingStatus: "uploaded",
-        })
+  return {
+    currencyBreakdown,
+    totalAmount:
+      currencyBreakdown.length === 1
+        ? currencyBreakdown[0].total
+        : null,
+  };
+};
 
-        return res.status(201).json({
-            message:"Payroll file uploaded successfully",
-            data:payrollImport
-        })
+const getUser = async (userId) =>
+  User.findById(userId).select("-password");
 
-    } catch (error) {
-        console.log(`upload payroll file error : ${error.message}`)
+// ==================================================
+// 1. UPLOAD PAYROLL FILE
+// ==================================================
 
-        if(req.file?.path){
-            fs.unlink(req.file.path, ()=>{})
-        }
-
-        return res.status(500).json({
-            message:"Internal server error"
-        })
-    }
-}
-
-// get all pyroll imports controller GET method 
-export const getPayrollImports = async(req, res) =>{
-    try {
-        const userId = req.userId
-        const user = await User.findById(userId)
-
-        const imports = await PayrollImport.find({companyId:user.companyId}).select("-extractedRecords").sort({createdAt:-1})
-
-        return res.status(200).json({
-            message:"All imports found",
-            count:imports.length,
-            data:imports
-        })
-
-    } catch (error) {
-        console.log(`Get payroll import error : ${error.message}`)
-        return res.status(500).json({
-            message:"Failed to fetch payroll imports"
-        })
-    }
-}
-
-// Get one payroll import GET method 
-export const getPayrollImportById = async(req, res) => {
-    try {
-        const userId = req.userId
-        const user = await User.findById(userId)
-
-        if(!user){
-            return res.status(404).json({
-                message:"User not found"
-            })
-        }
-
-        const payroll = await PayrollImport.findOne({_id:req.params.id, companyId:user.companyId})
-
-        if(!payroll){
-            return res.status(404).json({
-                message:"Payroll imports not found"
-            })
-        }
-
-        return res.status(200).json({
-            message:"Payroll found successfully",
-            data:payroll
-        })
-
-    } catch (error) {
-        console.log(`Get payroll import by ID error : ${error.message}`)
-
-        return res.status(500).json({
-            message:"Failed to get the payroll"
-        })
-
-    }
-}
-
-// process payroll file POST method
-export const processPayrollImport = async (req, res) => {
+export const uploadPayrollFile = async (req, res) => {
   try {
+    const user = await getUser(req.userId);
 
-    const userId = req.userId
-    const user = await User.findById(userId).select("-password")
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
 
-    if(!user){
-        return res.status(404).json({
-            message:"User not found"
-        })
+    if (!user.companyId) {
+      return res.status(400).json({
+        success: false,
+        message: "Your account is not connected to a company.",
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Please upload a payroll file",
+      });
+    }
+
+    const extension = path
+      .extname(req.file.originalname)
+      .toLowerCase()
+      .replace(".", "");
+
+    const allowedTypes = ["csv", "xlsx", "xls"];
+
+    if (!allowedTypes.includes(extension)) {
+      if (req.file.path) {
+        fs.unlink(req.file.path, () => {});
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: "Only CSV and Excel files are supported",
+      });
+    }
+
+    const payrollImport = await PayrollImport.create({
+      companyId: user.companyId,
+      uploadedBy: user._id,
+      originalFileName: req.file.originalname,
+      fileType: extension,
+      storageKey: req.file.path,
+      fileSize: req.file.size,
+      processingStatus: "uploaded",
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Payroll file uploaded successfully",
+      data: payrollImport,
+    });
+  } catch (error) {
+    console.error("UPLOAD PAYROLL FILE ERROR:", error);
+
+    if (req.file?.path) {
+      fs.unlink(req.file.path, () => {});
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to upload payroll file",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
+    });
+  }
+};
+
+// ==================================================
+// 2. GET ALL PAYROLL IMPORTS
+// ==================================================
+
+export const getPayrollImports = async (req, res) => {
+  try {
+    const user = await getUser(req.userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const imports = await PayrollImport.find({
+      companyId: user.companyId,
+    })
+      .select("-extractedRecords -storageKey")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      message: "All payroll imports found",
+      count: imports.length,
+      data: imports,
+    });
+  } catch (error) {
+    console.error("GET PAYROLL IMPORTS ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch payroll imports",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
+    });
+  }
+};
+
+// ==================================================
+// 3. GET PAYROLL IMPORT BY ID
+// ==================================================
+
+export const getPayrollImportById = async (req, res) => {
+  try {
+    const user = await getUser(req.userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
 
     const payrollImport = await PayrollImport.findOne({
       _id: req.params.id,
       companyId: user.companyId,
-    }).select("+storageKey");
+    }).select("-storageKey");
 
     if (!payrollImport) {
       return res.status(404).json({
-        message: "Payroll import not found.",
+        success: false,
+        message: "Payroll import not found",
       });
     }
 
-    if (payrollImport.processingStatus !== "uploaded") {
-      return res.status(400).json({
-        message: "This import cannot be processed in its current state.",
-      });
-    }
+    return res.status(200).json({
+      success: true,
+      message: "Payroll import found successfully",
+      data: payrollImport,
+    });
+  } catch (error) {
+    console.error("GET PAYROLL IMPORT BY ID ERROR:", error);
 
-    if (!fs.existsSync(payrollImport.storageKey)) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to get payroll import",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
+    });
+  }
+};
+
+// ==================================================
+// 4. PROCESS PAYROLL FILE
+// ==================================================
+
+export const processPayrollImport = async (req, res) => {
+  let payrollImport;
+
+  try {
+    const user = await getUser(req.userId);
+
+    if (!user) {
       return res.status(404).json({
-        message: "The uploaded file could not be found.",
+        success: false,
+        message: "User not found",
       });
     }
 
-    payrollImport.processingStatus = "processing";
-    payrollImport.processingStartedAt = new Date();
-    await payrollImport.save();
+    if (!user.companyId) {
+      return res.status(400).json({
+        success: false,
+        message: "Your account is not connected to a company.",
+      });
+    }
 
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payroll import ID",
+      });
+    }
+
+    // Claim the import atomically.
+    // Both uploaded and failed imports can be processed.
+    payrollImport = await PayrollImport.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        companyId: user.companyId,
+        processingStatus: {
+          $in: ["uploaded", "failed"],
+        },
+      },
+      {
+        $set: {
+          processingStatus: "processing",
+          processingStartedAt: new Date(),
+          processingCompletedAt: null,
+        },
+      },
+      {
+        new: true,
+      }
+    ).select("+storageKey");
+
+    if (!payrollImport) {
+      const existingImport = await PayrollImport.findOne({
+        _id: req.params.id,
+        companyId: user.companyId,
+      }).select("processingStatus");
+
+      if (!existingImport) {
+        return res.status(404).json({
+          success: false,
+          message: "Payroll import not found",
+        });
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: `This import cannot be processed. Current status: ${existingImport.processingStatus}`,
+      });
+    }
+
+    // Check uploaded file
+    if (
+      !payrollImport.storageKey ||
+      !fs.existsSync(payrollImport.storageKey)
+    ) {
+      payrollImport.processingStatus = "failed";
+      payrollImport.processingCompletedAt = new Date();
+      await payrollImport.save();
+
+      return res.status(404).json({
+        success: false,
+        message: "Uploaded file not found. Please upload the file again.",
+      });
+    }
+
+    // Read workbook
     const workbook = xlsx.readFile(payrollImport.storageKey, {
       cellDates: true,
     });
+
+    if (!workbook.SheetNames.length) {
+      throw new Error("No worksheet found in the uploaded file.");
+    }
 
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
 
@@ -206,26 +345,26 @@ export const processPayrollImport = async (req, res) => {
       defval: "",
       raw: false,
     });
-    
 
     if (!rawRows.length) {
       payrollImport.processingStatus = "failed";
       payrollImport.processingCompletedAt = new Date();
-      payrollImport.validationErrors = [{
-        field: "file",
-        code: "EMPTY_FILE",
-        message: "The uploaded spreadsheet contains no records.",
-        severity: "error",
-      }];
+      payrollImport.validationErrors = [
+        {
+          field: "file",
+          code: "EMPTY_FILE",
+          message: "The uploaded spreadsheet contains no records.",
+          severity: "error",
+        },
+      ];
 
       await payrollImport.save();
 
       return res.status(400).json({
         success: false,
-        message: "The spreadsheet is empty.",
+        message: "The spreadsheet is empty",
       });
     }
-
 
     // Normalize spreadsheet headers
     const rows = rawRows.map((rawRow) => {
@@ -238,31 +377,35 @@ export const processPayrollImport = async (req, res) => {
       return normalizedRow;
     });
 
-    // console.log("RAW ROWS:", rawRows);
-    // console.log("NORMALIZED ROWS:", rows);
+    // Extract employee codes
+    const employeeCodes = [
+      ...new Set(
+        rows
+          .map((row) =>
+            getValue(row, [
+              "employeecode",
+              "code",
+              "employeeid",
+            ])
+          )
+          .filter(Boolean)
+      ),
+    ];
 
-    // console.log(
-    // "PAY FREQUENCIES:",
-    // rows.map((row) => row.payfrequency)
-    // );
-
-
-    const employeeCodes = rows
-      .map((row) =>
-        getValue(row, ["employeecode", "code", "employeeid"])
-      )
-      .filter(Boolean);
-
-    // Find existing employees belonging to this company
+    // Find matching employees
     const existingEmployees = await Employee.find({
       companyId: user.companyId,
-      employeeCode: { $in: employeeCodes },
-    }).select("_id employeeCode");
+      employeeCode: {
+        $in: employeeCodes,
+      },
+    }).select(
+      "_id employeeCode name email country department jobTitle salary paymentMethods"
+    );
 
     const employeeMap = new Map(
       existingEmployees.map((employee) => [
         employee.employeeCode,
-        employee._id,
+        employee,
       ])
     );
 
@@ -270,6 +413,7 @@ export const processPayrollImport = async (req, res) => {
     const extractedRecords = [];
     const fileErrors = [];
 
+    // Process spreadsheet rows
     rows.forEach((row, index) => {
       const employeeCode = getValue(row, [
         "employeecode",
@@ -277,40 +421,102 @@ export const processPayrollImport = async (req, res) => {
         "employeeid",
       ]);
 
-      const name = getValue(row, ["name", "employeename"]);
-      const email = getValue(row, ["email", "employeeemail"]);
-      const country = getValue(row, ["country"]);
-      const salaryValue = getValue(row, [
-        "salary",
-        "amount",
-        "baseamount",
-      ]);
-      const currency = getValue(row, ["currency"]);
-      const payFrequency = getValue(row, [
+      const existingEmployee = employeeMap.get(employeeCode);
+
+      const name =
+        getValue(row, ["name", "employeename"]) ||
+        existingEmployee?.name ||
+        "";
+
+      const email =
+        getValue(row, ["email", "employeeemail"]) ||
+        existingEmployee?.email ||
+        "";
+
+      const country =
+        getValue(row, ["country"]) ||
+        existingEmployee?.country ||
+        "";
+
+      const department =
+        getValue(row, ["department", "dept", "division"]) ||
+        existingEmployee?.department ||
+        "";
+
+      const jobTitle =
+        getValue(row, [
+          "jobtitle",
+          "designation",
+          "role",
+          "position",
+        ]) ||
+        existingEmployee?.jobTitle ||
+        "";
+
+      const salaryValue = parseSalary(
+        getValue(row, [
+          "salary",
+          "amount",
+          "baseamount",
+          "salaryamount",
+          "basesalary",
+        ])
+      );
+
+      const currencyValue = getValue(row, ["currency"]);
+
+      const frequencyValue = getValue(row, [
         "payfrequency",
         "frequency",
-      ] || "").trim().toLowerCase();
+      ]).toLowerCase();
 
-      const recipientEmail = getValue(row, [
-        "recipientemail",
-        "paypalemail",
-      ]);
+      const existingSalaryAmount =
+        existingEmployee?.salary?.amount?.toString() || "";
+
+      const salaryAmount = salaryValue || existingSalaryAmount;
+
+      const currency =
+        currencyValue ||
+        existingEmployee?.salary?.currency ||
+        "";
+
+      const payFrequency =
+        frequencyValue ||
+        existingEmployee?.salary?.payFrequency ||
+        "";
+
+      const recipientEmail =
+        getValue(row, [
+          "recipientemail",
+          "paypalemail",
+        ]) ||
+        existingEmployee?.paymentMethods?.recipientEmail ||
+        "";
 
       const errors = [];
 
-      if (!employeeCode) errors.push("Employee code is required.");
-      if (!name) errors.push("Employee name is required.");
+      if (!employeeCode) {
+        errors.push("Employee code is required.");
+      }
 
-      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      if (!name) {
+        errors.push("Employee name is required.");
+      }
+
+      if (!validEmail(email)) {
         errors.push("A valid employee email is required.");
       }
 
-      const salaryAmount = Number(salaryValue);
+      if (!country) {
+        errors.push("Country is required.");
+      }
+
+      const numericSalary = Number(salaryAmount);
 
       if (
-        !salaryValue ||
-        !Number.isFinite(salaryAmount) ||
-        salaryAmount <= 0
+        !salaryAmount ||
+        !Number.isFinite(numericSalary) ||
+        numericSalary <= 0
       ) {
         errors.push("Salary must be a valid positive number.");
       }
@@ -319,10 +525,12 @@ export const processPayrollImport = async (req, res) => {
         errors.push("Currency must be a three-letter currency code.");
       }
 
-      const allowedFrequencies = ["weekly", "biweekly", "monthly"];
-
-      if (!allowedFrequencies.includes(payFrequency)) {
-        errors.push("Pay frequency must be weekly, biweekly, or monthly.");
+      if (
+        !["weekly", "biweekly", "monthly"].includes(payFrequency)
+      ) {
+        errors.push(
+          "Pay frequency must be weekly, biweekly, or monthly."
+        );
       }
 
       let rowStatus = errors.length ? "invalid" : "valid";
@@ -336,24 +544,24 @@ export const processPayrollImport = async (req, res) => {
         seenCodes.add(employeeCode);
       }
 
-      const matchedEmployeeId = employeeMap.get(employeeCode) || null;
-
       extractedRecords.push({
         rowNumber: index + 2,
         employeeCode,
         name,
         email: email.toLowerCase(),
         country,
+        department,
+        jobTitle,
+
         salary: {
-          amount: Number.isFinite(salaryAmount)
-            ? String(salaryAmount)
-            : undefined,
+          amount: salaryAmount || undefined,
           currency: currency.toUpperCase(),
           payFrequency,
         },
+
         recipientEmail: recipientEmail.toLowerCase(),
-        matchedEmployeeId,
-        action: matchedEmployeeId ? "update" : "create",
+        matchedEmployeeId: existingEmployee?._id || null,
+        action: existingEmployee ? "update" : "create",
         rowStatus,
         validationErrors: errors,
       });
@@ -369,6 +577,7 @@ export const processPayrollImport = async (req, res) => {
       });
     });
 
+    // Save extracted records
     payrollImport.extractedRecords = extractedRecords;
     payrollImport.validationErrors = fileErrors;
     payrollImport.processingStatus = "needs_review";
@@ -378,92 +587,117 @@ export const processPayrollImport = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Payroll file processed. Please review the extracted records.",
+      message:
+        "Payroll file processed successfully. Please review the extracted records.",
+
       totalRecords: extractedRecords.length,
+
       validRecords: extractedRecords.filter(
         (record) => record.rowStatus === "valid"
       ).length,
+
       invalidRecords: extractedRecords.filter(
         (record) => record.rowStatus === "invalid"
       ).length,
+
       duplicateRecords: extractedRecords.filter(
         (record) => record.rowStatus === "duplicate"
       ).length,
+
       data: payrollImport,
     });
   } catch (error) {
-    console.error("Process payroll import error:", error);
-    const userId = req.userId
-    const user = await User.findById(userId).select("-password")
+    console.error("\n========== PAYROLL PROCESS ERROR ==========");
+    console.error("Message:", error.message);
+    console.error("Stack:", error.stack);
+    console.error("============================================\n");
 
-    await PayrollImport.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        companyId: user.companyId,
-      },
-      {
-        processingStatus: "failed",
-        processingCompletedAt: new Date(),
+    // Mark import as failed so it can be retried
+    try {
+      if (payrollImport?._id) {
+        await PayrollImport.findByIdAndUpdate(
+          payrollImport._id,
+          {
+            $set: {
+              processingStatus: "failed",
+              processingCompletedAt: new Date(),
+            },
+          }
+        );
       }
-    );
+    } catch (updateError) {
+      console.error("IMPORT STATUS UPDATE ERROR:", updateError);
+    }
 
     return res.status(500).json({
       success: false,
-      message: "Failed to process payroll file.",
+      message: "Failed to process payroll file",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
     });
   }
 };
 
-// Review And Correct Records POST method
+// ==================================================
+// 5. REVIEW AND CORRECT PAYROLL RECORDS
+// ==================================================
+
 export const reviewPayrollImport = async (req, res) => {
   try {
+    const user = await getUser(req.userId);
 
-    const userId = req.userId
-    const user = await User.findById(userId)
-
-    if(!user){
-        return res.status(404).json({
-            message:"User not found"
-        })
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
 
     const { records } = req.body;
 
     if (!Array.isArray(records)) {
       return res.status(400).json({
-        message: "Records must be provided as an array.",
+        success: false,
+        message: "Records must be provided as an array",
       });
     }
 
     const payrollImport = await PayrollImport.findOne({
       _id: req.params.id,
-      companyId:user.companyId,
+      companyId: user.companyId,
     });
 
     if (!payrollImport) {
       return res.status(404).json({
-        message: "Payroll import not found.",
+        success: false,
+        message: "Payroll import not found",
       });
     }
 
     if (payrollImport.processingStatus !== "needs_review") {
       return res.status(400).json({
-        message: "This import is not available for review.",
+        success: false,
+        message: "This import is not available for review",
       });
     }
 
     for (const update of records) {
-      const record = payrollImport.extractedRecords.id(update.recordId);
+      const record = payrollImport.extractedRecords.id(
+        update.recordId
+      );
 
       if (!record) continue;
 
-      // Only allow specific fields to be edited
       const allowedFields = [
         "employeeCode",
         "name",
         "email",
         "country",
         "recipientEmail",
+        "department",
+        "jobTitle",
       ];
 
       for (const field of allowedFields) {
@@ -474,154 +708,279 @@ export const reviewPayrollImport = async (req, res) => {
 
       if (update.salary && typeof update.salary === "object") {
         if (update.salary.amount !== undefined) {
-          record.salary.amount = update.salary.amount;
+          record.salary.amount = parseSalary(update.salary.amount);
         }
 
         if (update.salary.currency !== undefined) {
-          record.salary.currency = update.salary.currency;
+          record.salary.currency = String(update.salary.currency)
+            .trim()
+            .toUpperCase();
         }
 
         if (update.salary.payFrequency !== undefined) {
-          record.salary.payFrequency = update.salary.payFrequency;
+          record.salary.payFrequency = String(
+            update.salary.payFrequency
+          ).trim().toLowerCase();
         }
       }
 
       if (["create", "update", "skip"].includes(update.action)) {
         record.action = update.action;
       }
+    }
 
-      // Clear old validation messages; approval will validate again
-      record.validationErrors = [];
-      record.rowStatus = "pending";
+    // Revalidate every record and detect duplicates again
+    const seenCodes = new Set();
+
+    for (const record of payrollImport.extractedRecords) {
+      const errors = [];
+
+      if (!record.employeeCode?.trim()) {
+        errors.push("Employee code is required.");
+      }
+
+      if (!record.name?.trim()) {
+        errors.push("Employee name is required.");
+      }
+
+      if (!validEmail(record.email)) {
+        errors.push("A valid employee email is required.");
+      }
+
+      if (!record.country?.trim()) {
+        errors.push("Country is required.");
+      }
+
+      const amount = Number(record.salary?.amount);
+
+      if (!Number.isFinite(amount) || amount <= 0) {
+        errors.push("Salary must be a valid positive number.");
+      }
+
+      if (!/^[A-Za-z]{3}$/.test(record.salary?.currency || "")) {
+        errors.push("Currency must be a three-letter currency code.");
+      }
+
+      if (
+        !["weekly", "biweekly", "monthly"].includes(
+          record.salary?.payFrequency
+        )
+      ) {
+        errors.push("Invalid pay frequency.");
+      }
+
+      if (
+        record.employeeCode &&
+        seenCodes.has(record.employeeCode)
+      ) {
+        errors.push("Duplicate employee code in uploaded file.");
+        record.rowStatus = "duplicate";
+      } else {
+        record.rowStatus = errors.length ? "invalid" : "valid";
+      }
+
+      if (record.employeeCode) {
+        seenCodes.add(record.employeeCode);
+      }
+
+      record.validationErrors = errors;
     }
 
     payrollImport.reviewedBy = user._id;
     payrollImport.reviewedAt = new Date();
 
+    // Rebuild file-level validation errors
+    payrollImport.validationErrors = payrollImport.extractedRecords
+      .filter((record) => record.validationErrors?.length)
+      .flatMap((record) =>
+        record.validationErrors.map((message) => ({
+          rowNumber: record.rowNumber,
+          field: "record",
+          code: "VALIDATION_ERROR",
+          message,
+          severity: "error",
+        }))
+      );
+
     await payrollImport.save();
 
     return res.status(200).json({
-      message: "Payroll records updated for review.",
+      success: true,
+      message: "Payroll records updated successfully",
       data: payrollImport,
     });
   } catch (error) {
-    console.error("Review payroll import error:", error);
+    console.error("REVIEW PAYROLL IMPORT ERROR:", error);
 
     return res.status(500).json({
-      message: "Failed to review payroll import.",
+      success: false,
+      message: "Failed to review payroll import",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
     });
   }
 };
 
-// APPROVE AND APPLY EMPLOYEE RECORDS POST method
+// ==================================================
+// 6. APPROVE IMPORT AND CREATE PAYROLL BATCH
+// ==================================================
+
 export const approvePayrollImport = async (req, res) => {
-  const session = await mongoose.startSession();
+  let session;
 
   try {
+    const user = await getUser(req.userId);
 
-    const userId = req.userId
-    const user = await User.findById(userId).select("-password")
-
-    if(!user){
-        return res.status(404).json({
-            message:"User not found"
-        })
-    }
-
-    const payrollImport = await PayrollImport.findOne({
-      _id: req.params.id,
-      companyId:user.companyId,
-    }).session(session);
-
-    if (!payrollImport) {
-      await session.endSession();
-
+    if (!user) {
       return res.status(404).json({
-        message: "Payroll import not found.",
+        success: false,
+        message: "User not found",
       });
     }
 
-    if (payrollImport.processingStatus !== "needs_review") {
-      await session.endSession();
-
+    if (!user.companyId) {
       return res.status(400).json({
-        message: "This import cannot be approved.",
+        success: false,
+        message: "Your account is not connected to a company.",
       });
     }
 
-    const records = payrollImport.extractedRecords;
+    const {
+      periodStartDate,
+      periodEndDate,
+      batchName,
+    } = req.body;
 
-    const eligibleRecords = records.filter(
-      (record) => record.action !== "skip"
-    );
+    if (!periodStartDate || !periodEndDate) {
+      return res.status(400).json({
+        success: false,
+        message: "Payroll period start and end dates are required.",
+      });
+    }
 
-    const codes = eligibleRecords.map((record) => record.employeeCode);
+    const startDate = new Date(periodStartDate);
+    const endDate = new Date(periodEndDate);
 
-    // Check for missing and duplicate employee codes
     if (
-      codes.some((code) => !code) ||
-      new Set(codes).size !== codes.length
+      Number.isNaN(startDate.getTime()) ||
+      Number.isNaN(endDate.getTime()) ||
+      startDate > endDate
     ) {
-      await session.endSession();
-
       return res.status(400).json({
-        message: "Fix missing or duplicate employee codes before approval.",
+        success: false,
+        message: "Please provide valid payroll period dates.",
       });
     }
 
-    for (const record of eligibleRecords) {
-      const amount = Number(record.salary?.amount);
+    session = await mongoose.startSession();
 
-      const valid =
-        record.name?.trim() &&
-        record.email &&
-        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(record.email) &&
-        Number.isFinite(amount) &&
-        amount > 0 &&
-        /^[A-Z]{3}$/.test(record.salary?.currency || "") &&
-        ["weekly", "biweekly", "monthly"].includes(
-          record.salary?.payFrequency
-        );
-
-      if (!valid) {
-        await session.endSession();
-
-        return res.status(400).json({
-          message: `Please correct the data in spreadsheet row ${record.rowNumber}.`,
-        });
-      }
-    }
+    let createdBatch;
+    let approvedImport;
 
     await session.withTransaction(async () => {
+      const payrollImport = await PayrollImport.findOne({
+        _id: req.params.id,
+        companyId: user.companyId,
+      }).session(session);
+
+      if (!payrollImport) {
+        throw new Error("Payroll import not found.");
+      }
+
+      if (payrollImport.processingStatus !== "needs_review") {
+        throw new Error("This import cannot be approved.");
+      }
+
+      const eligibleRecords = payrollImport.extractedRecords.filter(
+        (record) => record.action !== "skip"
+      );
+
+      if (!eligibleRecords.length) {
+        throw new Error("There are no employee records to approve.");
+      }
+
+      const codes = eligibleRecords.map(
+        (record) => record.employeeCode
+      );
+
+      if (
+        codes.some((code) => !code) ||
+        new Set(codes).size !== codes.length
+      ) {
+        throw new Error(
+          "Fix missing or duplicate employee codes before approval."
+        );
+      }
+
+      // Validate records before database changes
+      for (const record of eligibleRecords) {
+        const amount = Number(record.salary?.amount);
+
+        const valid =
+          record.employeeCode?.trim() &&
+          record.name?.trim() &&
+          validEmail(record.email) &&
+          record.country?.trim() &&
+          Number.isFinite(amount) &&
+          amount > 0 &&
+          /^[A-Z]{3}$/.test(record.salary?.currency || "") &&
+          ["weekly", "biweekly", "monthly"].includes(
+            record.salary?.payFrequency
+          ) &&
+          ["create", "update"].includes(record.action) &&
+          record.rowStatus !== "duplicate";
+
+        if (!valid) {
+          throw new Error(
+            `Please correct the data in spreadsheet row ${record.rowNumber}.`
+          );
+        }
+      }
+
+      // Create or update employees
       for (const record of eligibleRecords) {
         const employeeData = {
           employeeCode: record.employeeCode,
           name: record.name,
-          email: record.email,
+          email: record.email.toLowerCase(),
           country: record.country,
+
+          department: record.department || "",
+          jobTitle: record.jobTitle || "",
+
           salary: {
-            amount: mongoose.Types.Decimal128.fromString(
-              String(record.salary.amount)
-            ),
+            amount: toDecimal128(record.salary.amount),
             currency: record.salary.currency,
             payFrequency: record.salary.payFrequency,
+          },
+
+          paymentMethods: {
+            provider: "paypal",
+            ...(record.recipientEmail
+              ? {
+                  recipientEmail: record.recipientEmail.toLowerCase(),
+                }
+              : {}),
           },
         };
 
         if (record.action === "update") {
-          if (!record.matchedEmployeeId) {
-            throw new Error(
-              `No matched employee found for row ${record.rowNumber}.`
-            );
-          }
-
           const updated = await Employee.findOneAndUpdate(
             {
               _id: record.matchedEmployeeId,
               companyId: user.companyId,
+              employeeCode: record.employeeCode,
             },
-            { $set: employeeData },
-            { new: true, runValidators: true, session }
+            {
+              $set: employeeData,
+            },
+            {
+              new: true,
+              runValidators: true,
+              session,
+            }
           );
 
           if (!updated) {
@@ -648,29 +1007,124 @@ export const approvePayrollImport = async (req, res) => {
                 companyId: user.companyId,
               },
             ],
-            { session }
+            {
+              session,
+            }
           );
         }
       }
+
+      // Fetch imported employees
+      const employees = await Employee.find({
+        companyId: user.companyId,
+        employeeCode: {
+          $in: codes,
+        },
+      }).session(session);
+
+      const employeeMap = new Map(
+        employees.map((employee) => [
+          employee.employeeCode,
+          employee,
+        ])
+      );
+
+      // Prepare payroll batch items
+      const batchItems = eligibleRecords.map((record) => {
+        const employee = employeeMap.get(record.employeeCode);
+
+        if (!employee) {
+          throw new Error(
+            `Employee ${record.employeeCode} could not be found.`
+          );
+        }
+
+        const baseAmount = toDecimal128(record.salary.amount);
+
+        return {
+          employeeId: employee._id,
+          employeeName: employee.name,
+          employeeCode: employee.employeeCode,
+          country: employee.country,
+
+          baseAmount,
+          adjustments: [],
+          finalAmount: baseAmount,
+          currency: record.salary.currency,
+          paymentStatus: "pending",
+        };
+      });
+
+      const totals = calculateBatchTotals(batchItems);
+
+      // Create payroll batch
+      const batch = await PayrollBatch.create(
+        [
+          {
+            companyId: user.companyId,
+
+            batchName:
+              batchName?.trim() ||
+              `Payroll Import - ${payrollImport.originalFileName}`,
+
+            period: {
+              startDate,
+              endDate,
+            },
+
+            items: batchItems,
+            totalAmount: totals.totalAmount,
+            currencyBreakdown: totals.currencyBreakdown,
+            status: "draft",
+            createdBy: user._id,
+          },
+        ],
+        {
+          session,
+        }
+      );
+
+      createdBatch = batch[0];
 
       payrollImport.processingStatus = "approved";
       payrollImport.reviewedBy = user._id;
       payrollImport.reviewedAt = new Date();
 
       await payrollImport.save({ session });
+
+      approvedImport = payrollImport;
     });
 
     return res.status(200).json({
-      message: "Payroll import approved and employee records applied.",
-    });
+      success: true,
+      message:
+        "Payroll import approved and payroll batch created successfully.",
 
+      importId: approvedImport._id,
+
+      batch: {
+        id: createdBatch._id,
+        batchName: createdBatch.batchName,
+        status: createdBatch.status,
+        totalEmployees: createdBatch.items.length,
+        totalAmount: createdBatch.totalAmount,
+        currencyBreakdown: createdBatch.currencyBreakdown,
+        period: createdBatch.period,
+      },
+    });
   } catch (error) {
-    console.error("Approve payroll import error:", error);
+    console.error("\n========== APPROVE PAYROLL ERROR ==========");
+    console.error("Message:", error.message);
+    console.error("Stack:", error.stack);
+    console.error("============================================\n");
 
     return res.status(400).json({
-      message: error.message || "Failed to approve payroll import.",
+      success: false,
+      message: error.message || "Failed to approve payroll import",
     });
   } finally {
-    await session.endSession();
+    if (session) {
+      await session.endSession();
+    }
   }
-}
+};

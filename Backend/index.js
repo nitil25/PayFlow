@@ -25,7 +25,7 @@ const app = express();
 const PORT = process.env.PORT || 8000;
 
 const allowedOrigins = [
-  "http://localhost:5177",
+  "https://payflow-frontend-12wt.onrender.com",
   process.env.FRONTEND_URL
 ].filter(Boolean);
 

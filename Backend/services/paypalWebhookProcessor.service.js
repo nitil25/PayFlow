@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 
 import WebhookEvent from "../models/webhookEvents.model.js";
 import PaymentTransaction from "../models/paymentTransaction.model.js";
-import PayrollBatch from "../models/PayrollBatch.model.js";
+import PayrollBatch from "../models/payrollBatch.model.js";
 
 const EVENT_STATUS_MAP = {
   "PAYMENT.PAYOUTS-ITEM.SUCCEEDED": "completed",

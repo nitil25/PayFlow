@@ -1,4 +1,4 @@
-import dotenv, { config } from "dotenv";
+import dotenv from "dotenv";
 dotenv.config()
 import express from "express"
 import cookieParser from "cookie-parser"
@@ -12,6 +12,7 @@ import multerConfig from "./utils/multer.js";
 import payrollBatchRouter from "./routes/payrollBatch.route.js";
 import salaryChangeRouter from "./routes/salaryChange.route.js";
 import payrollScheduleRouter from "./routes/payrollSchedule.routes.js";
+import paymentTransactionRouter from "./routes/paymentTransaction.routes.js";
 
 const app = express()
 
@@ -39,6 +40,7 @@ app.use("/api/payroll",payrollRouter)
 app.use("/api/payroll-batch",payrollBatchRouter)
 app.use("/api/salary-change",salaryChangeRouter)
 app.use("/api/payroll-schedule",payrollScheduleRouter)
+app.use("/api/payment",paymentTransactionRouter)
 
 
 app.listen(PORT, ()=>{

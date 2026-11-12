@@ -1,6 +1,6 @@
 import User from "../models/user.model.js"
-import Company from "../models/Company.model.js"
 import Employee from "../models/employee.model.js"
+import Company from "../models/company.model.js"
 
 
 // add an employee POST method /api/add/employee

@@ -26,9 +26,7 @@ function WorkspaceLayout() {
 
   return (
     <div className="workspace-layout">
-
       <aside className="workspace-sidebar">
-
         <Link to="/dashboard" className="workspace-brand">
           <div className="workspace-brand-icon">PF</div>
           <span>PayFlow</span>
@@ -37,9 +35,9 @@ function WorkspaceLayout() {
         <div className="workspace-sidebar-label">WORKSPACE</div>
 
         <nav className="workspace-nav">
-
           <NavLink
             to="/dashboard"
+            end
             className={({ isActive }) =>
               `workspace-nav-item ${isActive ? "active" : ""}`
             }
@@ -59,30 +57,39 @@ function WorkspaceLayout() {
             Employees
           </NavLink>
 
-          <button className="workspace-nav-item" type="button" disabled>
+          <NavLink
+            to="/payroll-payments"
+            className={({ isActive }) =>
+              `workspace-nav-item ${isActive ? "active" : ""}`
+            }
+          >
             <span className="workspace-nav-icon">⇄</span>
-            Payroll
-            <small>SOON</small>
-          </button>
+            Payroll Payments
+          </NavLink>
 
-          <button className="workspace-nav-item" type="button" disabled>
+          <NavLink
+            to="/payroll-batches"
+            className={({ isActive }) =>
+              `workspace-nav-item ${isActive ? "active" : ""}`
+            }
+          >
             <span className="workspace-nav-icon">▤</span>
             Payroll Batches
-            <small>SOON</small>
-          </button>
+          </NavLink>
 
-          <button className="workspace-nav-item" type="button" disabled>
+          <NavLink
+            to="/payroll-imports"
+            className={({ isActive }) =>
+              `workspace-nav-item ${isActive ? "active" : ""}`
+            }
+          >
             <span className="workspace-nav-icon">◷</span>
             Payroll Imports
-            <small>SOON</small>
-          </button>
-
+          </NavLink>
         </nav>
 
         <div className="workspace-sidebar-bottom">
-
           <div className="workspace-company">
-
             <div className="workspace-company-avatar">
               {company?.name?.charAt(0)?.toUpperCase() || "P"}
             </div>
@@ -93,7 +100,6 @@ function WorkspaceLayout() {
                 {company ? "Company account" : "Personal workspace"}
               </span>
             </div>
-
           </div>
 
           <Link to="/dashboard" className="workspace-settings">
@@ -105,20 +111,18 @@ function WorkspaceLayout() {
             <span className="workspace-account-avatar">
               {userName.charAt(0).toUpperCase()}
             </span>
+
             <div>
               <strong>{userName}</strong>
               <small>Account Owner</small>
             </div>
           </div>
-
         </div>
-
       </aside>
 
       <main className="workspace-content">
         <Outlet />
       </main>
-
     </div>
   );
 }

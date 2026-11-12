@@ -118,26 +118,52 @@ function Employees() {
             .join("");
     };
 
-    // Salary formatting
-    const formatSalary = (salary) => {
-        const amount = Number(
-            salary?.amount ?? salary ?? 0
+    // Safely convert MongoDB Decimal128 / regular values
+    const getSalaryAmount = (salary) => {
+        const amount = salary?.amount ?? salary;
+
+        if (amount === undefined || amount === null || amount === "") {
+            return null;
+        }
+
+        const numericAmount = Number(
+            typeof amount === "object" && amount.$numberDecimal
+                ? amount.$numberDecimal
+                : amount
         );
 
-        if (!Number.isFinite(amount)) return "—";
+        return Number.isFinite(numericAmount) ? numericAmount : null;
+    };
 
-        const currency = salary?.currency || "INR";
+    // Salary formatting
+    const formatSalary = (salary) => {
+        const amount = getSalaryAmount(salary);
+
+        if (amount === null) return "—";
+
+        const currency = String(salary?.currency || "INR").toUpperCase();
 
         try {
             return new Intl.NumberFormat("en-IN", {
                 style: "currency",
                 currency,
-                maximumFractionDigits: 0
+                maximumFractionDigits: 2
             }).format(amount);
 
         } catch {
             return `${currency} ${amount.toLocaleString("en-IN")}`;
         }
+    };
+
+    // Pay frequency formatting
+    const formatPayFrequency = (frequency) => {
+        const frequencies = {
+            weekly: "Weekly",
+            biweekly: "Biweekly",
+            monthly: "Monthly"
+        };
+
+        return frequencies[String(frequency || "").toLowerCase()] || "";
     };
 
     // Employee status formatting
@@ -164,7 +190,10 @@ function Employees() {
                 employee.email,
                 employee.employeeCode,
                 employee.department,
-                employee.jobTitle
+                employee.jobTitle,
+                employee.salary?.currency,
+                employee.salary?.payFrequency,
+                employee.salary?.amount?.toString()
             ];
 
             return searchableValues.some((value) =>
@@ -221,12 +250,7 @@ function Employees() {
                     </div>
 
                     <div className="summary-icon people-icon">
-                        <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                        >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                             <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
                             <circle cx="9" cy="7" r="4" />
                             <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
@@ -246,12 +270,7 @@ function Employees() {
                     </div>
 
                     <div className="summary-icon active-icon">
-                        <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                        >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                             <path d="M20 7 10 17l-5-5" />
                             <path d="M21 12a9 9 0 1 1-5.3-8.23" />
                         </svg>
@@ -279,14 +298,8 @@ function Employees() {
 
                     <div className="employee-table-actions">
 
-                        {/* Search */}
                         <div className="employee-search">
-                            <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                            >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <circle cx="11" cy="11" r="7" />
                                 <path d="m20 20-4-4" />
                             </svg>
@@ -295,9 +308,7 @@ function Employees() {
                                 type="text"
                                 placeholder="Search employees..."
                                 value={search}
-                                onChange={(e) =>
-                                    setSearch(e.target.value)
-                                }
+                                onChange={(e) => setSearch(e.target.value)}
                             />
 
                             {search && (
@@ -312,22 +323,14 @@ function Employees() {
                             )}
                         </div>
 
-                        {/* Refresh */}
                         <button
                             type="button"
-                            className={`refresh-employees-btn ${
-                                refreshing ? "is-refreshing" : ""
-                            }`}
+                            className={`refresh-employees-btn ${refreshing ? "is-refreshing" : ""}`}
                             onClick={() => fetchEmployees(true)}
                             disabled={refreshing || loading}
                             title="Refresh employees"
                         >
-                            <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                            >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <path d="M20 7v5h-5" />
                                 <path d="M4 17v-5h5" />
                                 <path d="M5.64 9A7 7 0 0 1 18.36 7L20 12" />
@@ -352,7 +355,6 @@ function Employees() {
                         <div className="empty-employee-icon">!</div>
 
                         <h3>Something went wrong</h3>
-
                         <p>{error}</p>
 
                         <button
@@ -370,12 +372,7 @@ function Employees() {
                     <div className="employees-state employees-empty">
 
                         <div className="empty-employee-icon">
-                            <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.7"
-                            >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
                                 <circle cx="9" cy="8" r="3.5" />
                                 <path d="M2.5 20a6.5 6.5 0 0 1 13 0" />
                                 <path d="M19 8v6M16 11h6" />
@@ -388,10 +385,7 @@ function Employees() {
                             Add your first employee to start building your team directory.
                         </p>
 
-                        <Link
-                            to="/employees/create"
-                            className="add-employee-btn"
-                        >
+                        <Link to="/employees/create" className="add-employee-btn">
                             + Add your first employee
                         </Link>
 
@@ -399,165 +393,149 @@ function Employees() {
                 )}
 
                 {/* No Search Results */}
-                {!loading &&
-                    !error &&
-                    employees.length > 0 &&
-                    filteredEmployees.length === 0 && (
-                        <div className="employees-state employees-empty">
+                {!loading && !error && employees.length > 0 && filteredEmployees.length === 0 && (
+                    <div className="employees-state employees-empty">
 
-                            <div className="empty-employee-icon">
-                                <svg
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.7"
-                                >
-                                    <circle cx="11" cy="11" r="7" />
-                                    <path d="m20 20-4-4" />
-                                </svg>
-                            </div>
-
-                            <h3>No matching employees</h3>
-
-                            <p>
-                                We couldn't find any employees matching "{search}".
-                            </p>
-
-                            <button
-                                type="button"
-                                className="clear-search-btn"
-                                onClick={() => setSearch("")}
-                            >
-                                Clear search
-                            </button>
-
+                        <div className="empty-employee-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+                                <circle cx="11" cy="11" r="7" />
+                                <path d="m20 20-4-4" />
+                            </svg>
                         </div>
-                    )}
+
+                        <h3>No matching employees</h3>
+
+                        <p>
+                            We couldn't find any employees matching "{search}".
+                        </p>
+
+                        <button
+                            type="button"
+                            className="clear-search-btn"
+                            onClick={() => setSearch("")}
+                        >
+                            Clear search
+                        </button>
+
+                    </div>
+                )}
 
                 {/* Employee Table */}
-                {!loading &&
-                    !error &&
-                    filteredEmployees.length > 0 && (
-                        <>
-                            <div className="employees-table-wrapper">
+                {!loading && !error && filteredEmployees.length > 0 && (
+                    <>
+                        <div className="employees-table-wrapper">
 
-                                <table className="employees-table">
+                            <table className="employees-table">
 
-                                    <thead>
-                                        <tr>
-                                            <th>EMPLOYEE</th>
-                                            <th>EMPLOYEE ID</th>
-                                            <th>DEPARTMENT</th>
-                                            <th>JOB TITLE</th>
-                                            <th>SALARY</th>
-                                            <th>STATUS</th>
-                                            <th>ACTION</th>
-                                        </tr>
-                                    </thead>
+                                <thead>
+                                    <tr>
+                                        <th>EMPLOYEE</th>
+                                        <th>EMPLOYEE ID</th>
+                                        <th>DEPARTMENT</th>
+                                        <th>JOB TITLE</th>
+                                        <th>SALARY</th>
+                                        <th>STATUS</th>
+                                        <th>ACTION</th>
+                                    </tr>
+                                </thead>
 
-                                    <tbody>
-                                        {filteredEmployees.map((employee) => (
-                                            <tr key={employee._id}>
+                                <tbody>
+                                    {filteredEmployees.map((employee) => (
+                                        <tr key={employee._id}>
 
-                                                <td>
-                                                    <div className="employee-name-cell">
+                                            <td>
+                                                <div className="employee-name-cell">
 
-                                                        <div className="employee-avatar">
-                                                            {getInitials(employee.name)}
-                                                        </div>
-
-                                                        <div className="employee-identity">
-                                                            <span className="employee-name">
-                                                                {employee.name}
-                                                            </span>
-
-                                                            <span className="employee-email">
-                                                                {employee.email}
-                                                            </span>
-                                                        </div>
-
+                                                    <div className="employee-avatar">
+                                                        {getInitials(employee.name)}
                                                     </div>
-                                                </td>
 
-                                                <td>
-                                                    <span className="employee-code">
-                                                        {employee.employeeCode || "—"}
-                                                    </span>
-                                                </td>
+                                                    <div className="employee-identity">
+                                                        <span className="employee-name">
+                                                            {employee.name}
+                                                        </span>
 
-                                                <td>
-                                                    <span className="employee-table-text">
-                                                        {employee.department || "—"}
-                                                    </span>
-                                                </td>
+                                                        <span className="employee-email">
+                                                            {employee.email}
+                                                        </span>
+                                                    </div>
 
-                                                <td>
-                                                    <span className="employee-table-text">
-                                                        {employee.jobTitle || "—"}
-                                                    </span>
-                                                </td>
+                                                </div>
+                                            </td>
 
-                                                <td>
+                                            <td>
+                                                <span className="employee-code">
+                                                    {employee.employeeCode || "—"}
+                                                </span>
+                                            </td>
+
+                                            <td>
+                                                <span className="employee-table-text">
+                                                    {employee.department || "—"}
+                                                </span>
+                                            </td>
+
+                                            <td>
+                                                <span className="employee-table-text">
+                                                    {employee.jobTitle || "—"}
+                                                </span>
+                                            </td>
+
+                                            <td>
+                                                <div className="employee-salary-cell">
                                                     <span className="employee-salary">
                                                         {formatSalary(employee.salary.amount.$numberDecimal)}
                                                     </span>
-                                                </td>
 
-                                                <td>
-                                                    <span
-                                                        className={`employee-status status-${
-                                                            employee.status || "active"
-                                                        }`}
-                                                    >
-                                                        <span className="status-dot"></span>
-                                                        {formatStatus(employee.status)}
-                                                    </span>
-                                                </td>
+                                                    {formatPayFrequency(employee.salary?.payFrequency) && (
+                                                        <span className="employee-pay-frequency">
+                                                            {formatPayFrequency(employee.salary?.payFrequency)}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
 
-                                                <td>
-                                                    <button
-                                                        type="button"
-                                                        className="delete-employee-btn"
-                                                        onClick={() =>
-                                                            handleDeleteEmployee(employee)
-                                                        }
-                                                        disabled={!!deletingId}
-                                                        title={`Delete ${employee.name}`}
-                                                    >
-                                                        <svg
-                                                            viewBox="0 0 24 24"
-                                                            fill="none"
-                                                            stroke="currentColor"
-                                                            strokeWidth="1.8"
-                                                        >
-                                                            <path d="M3 6h18" />
-                                                            <path d="M8 6V4h8v2" />
-                                                            <path d="m19 6-1 14H6L5 6" />
-                                                            <path d="M10 11v5M14 11v5" />
-                                                        </svg>
+                                            <td>
+                                                <span className={`employee-status status-${employee.status || "active"}`}>
+                                                    <span className="status-dot"></span>
+                                                    {formatStatus(employee.status)}
+                                                </span>
+                                            </td>
 
-                                                        Delete
-                                                    </button>
-                                                </td>
+                                            <td>
+                                                <button
+                                                    type="button"
+                                                    className="delete-employee-btn"
+                                                    onClick={() => handleDeleteEmployee(employee)}
+                                                    disabled={!!deletingId}
+                                                    title={`Delete ${employee.name}`}
+                                                >
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                                        <path d="M3 6h18" />
+                                                        <path d="M8 6V4h8v2" />
+                                                        <path d="m19 6-1 14H6L5 6" />
+                                                        <path d="M10 11v5M14 11v5" />
+                                                    </svg>
 
-                                            </tr>
-                                        ))}
-                                    </tbody>
+                                                    Delete
+                                                </button>
+                                            </td>
 
-                                </table>
-                            </div>
+                                        </tr>
+                                    ))}
+                                </tbody>
 
-                            <div className="employees-table-footer">
-                                <span>
-                                    Showing{" "}
-                                    <strong>{filteredEmployees.length}</strong>{" "}
-                                    of{" "}
-                                    <strong>{employees.length}</strong>{" "}
-                                    employees
-                                </span>
-                            </div>
-                        </>
-                    )}
+                            </table>
+                        </div>
+
+                        <div className="employees-table-footer">
+                            <span>
+                                Showing <strong>{filteredEmployees.length}</strong>{" "}
+                                of <strong>{employees.length}</strong> employees
+                            </span>
+                        </div>
+                    </>
+                )}
 
             </section>
 
@@ -592,12 +570,7 @@ function Employees() {
                         </button>
 
                         <div className="delete-modal-icon">
-                            <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="1.8"
-                            >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                                 <path d="M3 6h18" />
                                 <path d="M8 6V4h8v2" />
                                 <path d="m19 6-1 14H6L5 6" />

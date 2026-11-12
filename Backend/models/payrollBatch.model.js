@@ -1,3 +1,4 @@
+
 import mongoose from "mongoose";
 
 // 1. Salary adjustments for an employee
@@ -32,7 +33,7 @@ const payrollItemSchema = new mongoose.Schema(
       required: true,
     },
 
-    // Snapshot: preserves employee details at payroll creation
+    // Employee snapshot
     employeeName: {
       type: String,
       required: true,
@@ -112,7 +113,7 @@ const payrollBatchSchema = new mongoose.Schema(
 
     totalAmount: {
       type: mongoose.Schema.Types.Decimal128,
-      default: 0,
+      default: null,
     },
 
     // Separate totals for different currencies
@@ -165,7 +166,6 @@ const payrollBatchSchema = new mongoose.Schema(
       default: null,
     },
 
-    // Approval version protects against changes after approval
     approvalVersion: {
       type: Number,
       default: 0,
@@ -181,7 +181,7 @@ const payrollBatchSchema = new mongoose.Schema(
   }
 );
 
-// Index for company-specific payroll history
+// Company-specific payroll history
 payrollBatchSchema.index({
   companyId: 1,
   createdAt: -1,
@@ -190,6 +190,5 @@ payrollBatchSchema.index({
 const PayrollBatch =
   mongoose.models.PayrollBatch ||
   mongoose.model("PayrollBatch", payrollBatchSchema);
-
 
 export default PayrollBatch;
